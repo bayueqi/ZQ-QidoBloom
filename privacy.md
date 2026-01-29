@@ -77,7 +77,7 @@
 
 如果您对本隐私政策有任何疑问或建议，欢迎通过以下方式联系：
 
-- GitHub 仓库：[https://github.com/BAYEUQI/ZQ-QidoBloom](https://github.com/BAYEUQI/ZQ-QidoBloom)
+- GitHub 仓库：[https://github.com/BAYUEQI/ZQ-QidoBloom](https://github.com/BAYUEQI/ZQ-QidoBloom)
 
 ---
 
