@@ -2,6 +2,7 @@
   "manifest_version": 3,
   "name": "琪窦初开",
   "version": "1.0.0",
+  "default_locale": "zh_CN",
   "description": "美观实用的自定义浏览器起始页",
   "action": {
     "default_title": "打开起始页"
