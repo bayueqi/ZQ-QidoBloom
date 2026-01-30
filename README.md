@@ -23,7 +23,7 @@
 ### 安装部署
 
 1. **准备扩展**
-   - ![下载](https://github.com/BAYUEQI/ZQ-QidoBloom/archive/refs/heads/main.zip)本项目到本地
+   - [下载](https://github.com/BAYUEQI/ZQ-QidoBloom/archive/refs/heads/main.zip)本项目到本地
    - 将文件解压出来
 
 2. **安装到浏览器**
