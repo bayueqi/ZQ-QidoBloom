@@ -545,27 +545,26 @@ body.clicked-outside .manage-dropdown-menu {
 /* 引擎下拉菜单 */
 .engine-dropdown {
     position: absolute;
-    bottom: 100%;
-    left: 0;
-    right: 0;
-    margin-bottom: 8px;
+    top: 0;
+    right: 100%;
+    margin-right: 8px;
     background: rgba(255, 255, 255, 0.95);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
     border: 1px solid rgba(0, 0, 0, 0.1);
     border-radius: 15px;
-    box-shadow: 0 -15px 35px rgba(0, 0, 0, 0.25);
+    box-shadow: -15px 0 35px rgba(0, 0, 0, 0.25);
     z-index: 2000;
     opacity: 0;
     visibility: hidden;
-    transform: translateY(10px);
+    transform: translateX(-10px);
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .search-engine-selector.open .engine-dropdown {
     opacity: 1;
     visibility: visible;
-    transform: translateY(0);
+    transform: translateX(0);
 }
 
 .engine-option {
@@ -701,12 +700,26 @@ body.clicked-outside .manage-dropdown-menu {
     border-radius: 10px;
     transition: all 0.3s ease;
     background: rgba(255, 255, 255, 0.05);
+    cursor: grab;
 }
 
 .shortcut-item:hover {
     background: rgba(255, 255, 255, 0.1);
     transform: translateY(-3px);
     box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+}
+
+.shortcut-item.dragging {
+    opacity: 0.5;
+    transform: scale(1.05);
+    box-shadow: 0 10px 30px rgba(102, 126, 234, 0.4);
+    cursor: grabbing;
+}
+
+.shortcut-item.drag-over {
+    border: 2px dashed #667eea;
+    background: rgba(102, 126, 234, 0.1);
+    transform: translateY(-3px);
 }
 
 .shortcut-icon {
