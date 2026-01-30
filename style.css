@@ -654,12 +654,27 @@ body.clicked-outside .manage-dropdown-menu {
     backdrop-filter: blur(10px);
     border: 1px solid rgba(200, 200, 200, 0.2);
     transition: all 0.3s ease;
+    cursor: grab;
 }
 
 .shortcut-group:hover {
     background: rgba(200, 200, 200, 0.2);
     transform: translateY(-5px);
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+}
+
+/* 拖拽相关样式 */
+.shortcut-group.dragging {
+    opacity: 0.5;
+    transform: scale(1.05);
+    box-shadow: 0 10px 30px rgba(102, 126, 234, 0.4);
+    cursor: grabbing;
+}
+
+.shortcut-group.drag-over {
+    border: 2px dashed #667eea;
+    background: rgba(102, 126, 234, 0.1);
+    transform: translateY(-5px);
 }
 
 .group-title {
