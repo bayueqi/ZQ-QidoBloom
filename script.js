@@ -264,11 +264,12 @@ async function initNewSearch() {
     };
 }
 
-// 添加快捷方式悬停效果
+// 添加快捷方式悬停效果和拖拽功能
 function initShortcuts() {
     const shortcutItems = document.querySelectorAll('.shortcut-item');
     
     shortcutItems.forEach(item => {
+        // 添加悬停效果
         item.addEventListener('mouseenter', function() {
             this.style.transform = 'translateY(-5px)';
         });
@@ -276,7 +277,123 @@ function initShortcuts() {
         item.addEventListener('mouseleave', function() {
             this.style.transform = 'translateY(0)';
         });
+        
+        // 设置可拖拽
+        item.setAttribute('draggable', 'true');
     });
+    
+    // 添加网站拖拽功能
+    let draggedItem = null;
+    
+    shortcutItems.forEach(item => {
+        // 拖拽开始事件
+        item.addEventListener('dragstart', function(e) {
+            e.stopPropagation();
+            draggedItem = this;
+            this.classList.add('dragging');
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', '');
+        });
+        
+        // 拖拽经过事件
+        item.addEventListener('dragover', function(e) {
+            e.stopPropagation();
+            e.preventDefault();
+            const draggedContainer = draggedItem.closest('.shortcut-items');
+            const targetContainer = this.closest('.shortcut-items');
+            if (draggedContainer === targetContainer) {
+                e.dataTransfer.dropEffect = 'move';
+            } else {
+                e.dataTransfer.dropEffect = 'none';
+            }
+        });
+        
+        // 拖拽进入事件
+        item.addEventListener('dragenter', function(e) {
+            e.stopPropagation();
+            e.preventDefault();
+            if (this !== draggedItem) {
+                const draggedContainer = draggedItem.closest('.shortcut-items');
+                const targetContainer = this.closest('.shortcut-items');
+                if (draggedContainer === targetContainer) {
+                    this.classList.add('drag-over');
+                }
+            }
+        });
+        
+        // 拖拽离开事件
+        item.addEventListener('dragleave', function(e) {
+            e.stopPropagation();
+            this.classList.remove('drag-over');
+        });
+        
+        // 放置事件
+        item.addEventListener('drop', async function(e) {
+            e.stopPropagation();
+            e.preventDefault();
+            this.classList.remove('drag-over');
+            
+            if (draggedItem !== this) {
+                const parentContainer = this.closest('.shortcut-items');
+                const draggedContainer = draggedItem.closest('.shortcut-items');
+                
+                // 只允许在同一个分组内拖拽
+                if (parentContainer === draggedContainer) {
+                    const itemsArray = Array.from(parentContainer.children);
+                    const draggedIndex = itemsArray.indexOf(draggedItem);
+                    const dropIndex = itemsArray.indexOf(this);
+                    
+                    // 重新排序网站
+                    if (draggedIndex < dropIndex) {
+                        parentContainer.insertBefore(draggedItem, this.nextSibling);
+                    } else {
+                        parentContainer.insertBefore(draggedItem, this);
+                    }
+                    
+                    // 保存新的网站排序
+                    await saveNewSiteOrder(parentContainer);
+                }
+            }
+        });
+        
+        // 拖拽结束事件
+        item.addEventListener('dragend', function(e) {
+            e.stopPropagation();
+            this.classList.remove('dragging');
+            shortcutItems.forEach(i => i.classList.remove('drag-over'));
+            draggedItem = null;
+        });
+    });
+    
+    // 保存新的网站排序
+    async function saveNewSiteOrder(container) {
+        try {
+            const group = container.closest('.shortcut-group');
+            const groupId = group.dataset.groupId;
+            const siteItems = container.querySelectorAll('.shortcut-item');
+            const siteIds = Array.from(siteItems).map(item => {
+                return item.dataset.siteId || '';
+            }).filter(Boolean);
+            
+            // 加载当前数据
+            const savedData = localStorage.getItem('startpage-data');
+            let data = savedData ? JSON.parse(savedData) : { groups: [] };
+            
+            // 找到对应的分组并重新排序网站
+            const groupIndex = data.groups.findIndex(g => g.id === groupId);
+            if (groupIndex !== -1) {
+                const originalSites = data.groups[groupIndex].sites;
+                data.groups[groupIndex].sites = siteIds.map(id => 
+                    originalSites.find(site => site.id === id)
+                ).filter(Boolean);
+                
+                // 保存到localStorage
+                localStorage.setItem('startpage-data', JSON.stringify(data));
+            }
+        } catch (error) {
+            console.error('Save site order error:', error);
+        }
+    }
     
     // 添加分组拖拽功能
     const groups = document.querySelectorAll('.shortcut-group');
@@ -285,6 +402,7 @@ function initShortcuts() {
     groups.forEach(group => {
         // 拖拽开始事件
         group.addEventListener('dragstart', function(e) {
+            e.stopPropagation();
             draggedGroup = this;
             this.classList.add('dragging');
             e.dataTransfer.effectAllowed = 'move';
@@ -292,27 +410,36 @@ function initShortcuts() {
         
         // 拖拽经过事件
         group.addEventListener('dragover', function(e) {
+            e.stopPropagation();
             e.preventDefault();
             e.dataTransfer.dropEffect = 'move';
         });
         
         // 拖拽进入事件
         group.addEventListener('dragenter', function(e) {
+            e.stopPropagation();
             e.preventDefault();
-            if (this !== draggedGroup) {
+            if (this !== draggedGroup && !draggedItem) {
                 this.classList.add('drag-over');
             }
         });
         
         // 拖拽离开事件
-        group.addEventListener('dragleave', function() {
+        group.addEventListener('dragleave', function(e) {
+            e.stopPropagation();
             this.classList.remove('drag-over');
         });
         
         // 放置事件
         group.addEventListener('drop', async function(e) {
+            e.stopPropagation();
             e.preventDefault();
             this.classList.remove('drag-over');
+            
+            // 如果正在拖拽网站，则不允许放置到分组上
+            if (draggedItem) {
+                return;
+            }
             
             if (draggedGroup !== this) {
                 const shortcutsContainer = document.querySelector('.shortcuts');
@@ -333,7 +460,8 @@ function initShortcuts() {
         });
         
         // 拖拽结束事件
-        group.addEventListener('dragend', function() {
+        group.addEventListener('dragend', function(e) {
+            e.stopPropagation();
             this.classList.remove('dragging');
             groups.forEach(g => g.classList.remove('drag-over'));
             draggedGroup = null;
@@ -402,7 +530,7 @@ async function renderShortcuts() {
                 <h3 class="group-title">${group.name}</h3>
                 <div class="shortcut-items">
                     ${group.sites.map(site => `
-                        <a href="${site.url}" class="shortcut-item" target="_blank">
+                        <a href="${site.url}" class="shortcut-item" target="_blank" data-site-id="${site.id}">
                             <div class="shortcut-icon">
                                 <img src="https://favicon.im/${new URL(site.url).hostname}" alt="${site.name} icon" style="width: 100%; height: 100%; object-fit: contain;" onerror="this.onerror=null; this.remove(); this.parentNode.innerHTML='${site.name.charAt(0)}'">
                             </div>
