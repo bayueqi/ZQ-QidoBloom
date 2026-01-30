@@ -277,6 +277,89 @@ function initShortcuts() {
             this.style.transform = 'translateY(0)';
         });
     });
+    
+    // 添加分组拖拽功能
+    const groups = document.querySelectorAll('.shortcut-group');
+    let draggedGroup = null;
+    
+    groups.forEach(group => {
+        // 拖拽开始事件
+        group.addEventListener('dragstart', function(e) {
+            draggedGroup = this;
+            this.classList.add('dragging');
+            e.dataTransfer.effectAllowed = 'move';
+        });
+        
+        // 拖拽经过事件
+        group.addEventListener('dragover', function(e) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+        });
+        
+        // 拖拽进入事件
+        group.addEventListener('dragenter', function(e) {
+            e.preventDefault();
+            if (this !== draggedGroup) {
+                this.classList.add('drag-over');
+            }
+        });
+        
+        // 拖拽离开事件
+        group.addEventListener('dragleave', function() {
+            this.classList.remove('drag-over');
+        });
+        
+        // 放置事件
+        group.addEventListener('drop', async function(e) {
+            e.preventDefault();
+            this.classList.remove('drag-over');
+            
+            if (draggedGroup !== this) {
+                const shortcutsContainer = document.querySelector('.shortcuts');
+                const groupsArray = Array.from(shortcutsContainer.children);
+                const draggedIndex = groupsArray.indexOf(draggedGroup);
+                const dropIndex = groupsArray.indexOf(this);
+                
+                // 重新排序分组
+                if (draggedIndex < dropIndex) {
+                    shortcutsContainer.insertBefore(draggedGroup, this.nextSibling);
+                } else {
+                    shortcutsContainer.insertBefore(draggedGroup, this);
+                }
+                
+                // 保存新的分组顺序
+                await saveNewGroupOrder();
+            }
+        });
+        
+        // 拖拽结束事件
+        group.addEventListener('dragend', function() {
+            this.classList.remove('dragging');
+            groups.forEach(g => g.classList.remove('drag-over'));
+            draggedGroup = null;
+        });
+    });
+    
+    // 保存新的分组顺序
+    async function saveNewGroupOrder() {
+        try {
+            const groups = document.querySelectorAll('.shortcut-group');
+            const groupIds = Array.from(groups).map(group => group.dataset.groupId);
+            
+            // 加载当前数据
+            const savedData = localStorage.getItem('startpage-data');
+            let data = savedData ? JSON.parse(savedData) : { groups: [] };
+            
+            // 重新排序分组
+            const originalGroups = data.groups;
+            data.groups = groupIds.map(id => originalGroups.find(group => group.id === id)).filter(Boolean);
+            
+            // 保存到localStorage
+            localStorage.setItem('startpage-data', JSON.stringify(data));
+        } catch (error) {
+            console.error('Save group order error:', error);
+        }
+    }
 }
 
 // 从localStorage读取数据
@@ -315,7 +398,7 @@ async function renderShortcuts() {
         const groups = data.groups;
 
         shortcutsContainer.innerHTML = groups.map(group => `
-            <div class="shortcut-group">
+            <div class="shortcut-group" draggable="true" data-group-id="${group.id}">
                 <h3 class="group-title">${group.name}</h3>
                 <div class="shortcut-items">
                     ${group.sites.map(site => `
@@ -600,6 +683,24 @@ function showPopup(type) {
                             </div>
                             <div class="modal-buttons">
                                 <button type="button" id="popup-cancel-edit-site" class="btn btn-secondary">取消</button>
+                                <button type="submit" class="btn btn-primary">保存</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+                
+                <!-- 编辑分组模态框 -->
+                <div id="popup-edit-group-modal" class="modal">
+                    <div class="modal-content">
+                        <h3>编辑分组</h3>
+                        <form id="popup-edit-group-form">
+                            <input type="hidden" id="popup-edit-group-id">
+                            <div class="form-group">
+                                <label for="popup-edit-group-name">分组名称</label>
+                                <input type="text" id="popup-edit-group-name" class="form-control" required>
+                            </div>
+                            <div class="modal-buttons">
+                                <button type="button" id="popup-cancel-edit-group" class="btn btn-secondary">取消</button>
                                 <button type="submit" class="btn btn-primary">保存</button>
                             </div>
                         </form>
@@ -970,6 +1071,15 @@ async function initPopupGroupsManagement(popupContent) {
                 }
             }
         }
+
+        // 更新分组
+        async updateGroup(groupId, groupData) {
+            const group = this.data.groups.find(g => g.id === groupId);
+            if (group) {
+                Object.assign(group, groupData);
+                await this.saveData();
+            }
+        }
     }
 
     // 初始化数据管理器
@@ -997,6 +1107,7 @@ async function initPopupGroupsManagement(popupContent) {
                     <h5>${group.name}</h5>
                     <div class="popup-group-actions">
                         <button class="btn btn-secondary btn-sm popup-add-site-btn" data-group-id="${group.id}">添加网站</button>
+                        <button class="btn btn-secondary btn-sm popup-edit-group-btn" data-group-id="${group.id}">编辑</button>
                         <button class="btn btn-danger btn-sm popup-delete-group-btn" data-group-id="${group.id}">删除</button>
                     </div>
                 </div>
@@ -1087,6 +1198,23 @@ async function initPopupGroupsManagement(popupContent) {
                         
                         showModal('popup-edit-site-modal');
                     }
+                }
+            });
+        });
+        
+        // 编辑分组按钮
+        popupContent.querySelectorAll('.popup-edit-group-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const groupId = e.currentTarget.dataset.groupId;
+                
+                // 找到对应的分组数据
+                const group = dataManager.getGroups().find(g => g.id === groupId);
+                if (group) {
+                    // 填充表单
+                    popupContent.querySelector('#popup-edit-group-id').value = groupId;
+                    popupContent.querySelector('#popup-edit-group-name').value = group.name;
+                    
+                    showModal('popup-edit-group-modal');
                 }
             });
         });
@@ -1238,6 +1366,36 @@ async function initPopupGroupsManagement(popupContent) {
                 hideModal('popup-edit-site-modal');
                 editSiteForm.reset();
                 showMessage('网站已更新');
+                renderShortcuts();
+            }
+        });
+    }
+
+    // 绑定取消编辑分组
+    const cancelEditGroupButton = popupContent.querySelector('#popup-cancel-edit-group');
+    if (cancelEditGroupButton) {
+        cancelEditGroupButton.addEventListener('click', () => {
+            hideModal('popup-edit-group-modal');
+        });
+    }
+
+    // 绑定编辑分组表单提交
+    const editGroupForm = popupContent.querySelector('#popup-edit-group-form');
+    if (editGroupForm) {
+        editGroupForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const groupId = popupContent.querySelector('#popup-edit-group-id').value;
+            const groupName = popupContent.querySelector('#popup-edit-group-name').value.trim();
+
+            if (groupName) {
+                const groupData = {
+                    name: groupName
+                };
+                await dataManager.updateGroup(groupId, groupData);
+                renderGroups();
+                hideModal('popup-edit-group-modal');
+                editGroupForm.reset();
+                showMessage('分组已更新');
                 renderShortcuts();
             }
         });
