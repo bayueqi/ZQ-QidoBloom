@@ -148,41 +148,7 @@ function importConfig() {
                 
                 localStorage.setItem('startpage-data', JSON.stringify(data));
 
-                // 检查是否已登录，如果登录则同步到服务器
-                let token = null;
-                try {
-                    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-                        const result = await new Promise((resolve) => {
-                            chrome.storage.local.get('authToken', resolve);
-                        });
-                        token = result.authToken;
-                    }
-                    if (!token) {
-                        token = localStorage.getItem('auth_token') || localStorage.getItem('authToken');
-                    }
-                } catch (error) {
-                    console.error('Get token error:', error);
-                }
 
-                if (token) {
-                    // 已登录，同步到服务器
-                    try {
-                        const response = await fetch(window.API_URL || API_URL , {
-                            method: 'POST',
-                            headers: {
-                                'Authorization': `Bearer ${token}`,
-                                'Content-Type': 'application/json'
-                            },
-                            body: JSON.stringify(data)
-                        });
-
-                        if (response.ok) {
-                            console.log('Data synced to server:', data);
-                        }
-                    } catch (error) {
-                        console.error('Sync data to server error:', error);
-                    }
-                }
 
                 alert('配置导入成功！页面将自动刷新。');
                 window.location.reload();
