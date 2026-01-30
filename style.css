@@ -700,7 +700,7 @@ body.clicked-outside .manage-dropdown-menu {
     border-radius: 10px;
     transition: all 0.3s ease;
     background: rgba(255, 255, 255, 0.05);
-    cursor: grab;
+    cursor: pointer;
 }
 
 .shortcut-item:hover {
