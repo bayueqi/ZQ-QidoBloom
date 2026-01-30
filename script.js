@@ -537,7 +537,6 @@ function handleDropdownAction(action) {
 // 显示弹出界面
 function showPopup(type) {
     // 这里将实现纸张抽取动画的弹出界面
-    console.log('Show popup:', type);
     
     // 创建弹出界面容器
     let popupContainer = document.getElementById('popup-container');
