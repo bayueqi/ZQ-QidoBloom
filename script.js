@@ -532,7 +532,7 @@ async function renderShortcuts() {
                     ${group.sites.map(site => `
                         <a href="${site.url}" class="shortcut-item" target="_blank" data-site-id="${site.id}">
                             <div class="shortcut-icon">
-                                <img src="https://favicon.im/${new URL(site.url).hostname}" alt="${site.name} icon" style="width: 100%; height: 100%; object-fit: contain;" onerror="this.onerror=null; this.remove(); this.parentNode.innerHTML='${site.name.charAt(0)}'">
+                                <img src="https://favicon.im/${new URL(site.url).hostname}" alt="${site.name} icon" style="width: 100%; height: 100%; object-fit: contain;" data-fallback="${site.name.charAt(0)}">
                             </div>
                             <span class="shortcut-name">${site.name}</span>
                         </a>
@@ -543,9 +543,44 @@ async function renderShortcuts() {
 
         // 重新初始化快捷方式事件
         initShortcuts();
+        
+        // 添加图片错误处理
+        addImageErrorHandlers();
     } catch (error) {
         console.error('Render shortcuts error:', error);
     }
+}
+
+// 添加图片错误处理函数
+function addImageErrorHandlers() {
+    const images = document.querySelectorAll('.shortcut-icon img');
+    images.forEach(img => {
+        img.onerror = function() {
+            this.onerror = null;
+            const parentNode = this.parentNode;
+            const fallback = this.dataset.fallback;
+            this.remove();
+            if (fallback && parentNode) {
+                parentNode.innerHTML = fallback;
+            }
+        };
+    });
+}
+
+// 添加管理页面图片错误处理函数
+function addPopupImageErrorHandlers() {
+    const images = document.querySelectorAll('.popup-site-icon img');
+    images.forEach(img => {
+        img.onerror = function() {
+            this.onerror = null;
+            const parentNode = this.parentNode;
+            const fallback = this.dataset.fallback;
+            this.remove();
+            if (fallback && parentNode) {
+                parentNode.innerHTML = fallback;
+            }
+        };
+    });
 }
 
 // 应用壁纸
@@ -1244,7 +1279,7 @@ async function initPopupGroupsManagement(popupContent) {
                         <div class="popup-site-item">
                             <div class="popup-site-info">
                                 <div class="popup-site-icon">
-                                    <img src="${site.icon.startsWith('http') ? site.icon : `https://favicon.im/${new URL(site.url).hostname}`}" alt="${site.name} icon" style="width: 100%; height: 100%; object-fit: contain;" onerror="this.onerror=null; this.remove(); this.parentNode.innerHTML='${site.name.charAt(0)}'">
+                                    <img src="${site.icon.startsWith('http') ? site.icon : `https://favicon.im/${new URL(site.url).hostname}`}" alt="${site.name} icon" style="width: 100%; height: 100%; object-fit: contain;" data-fallback="${site.name.charAt(0)}">
                                 </div>
                                 <div class="popup-site-details">
                                     <div class="popup-site-name">${site.name}</div>
@@ -1267,6 +1302,9 @@ async function initPopupGroupsManagement(popupContent) {
 
         // 绑定分组相关事件
         bindGroupEvents();
+        
+        // 添加管理页面图片错误处理
+        addPopupImageErrorHandlers();
     }
 
     // 绑定分组相关事件
