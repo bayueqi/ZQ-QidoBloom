@@ -1,3 +1,19 @@
+// 图标错误处理函数
+function handleIconError(img) {
+    img.style.width = '100%';
+    img.style.height = '100%';
+    img.style.objectFit = 'contain';
+    img.addEventListener('error', function() {
+        this.onerror = null;
+        const parent = this.parentElement;
+        const hostname = this.dataset.hostname;
+        this.remove();
+        if (parent && hostname) {
+            parent.innerHTML = hostname.charAt(0).toUpperCase();
+        }
+    });
+}
+
 // 实时更新时间和日期
 function updateDateTime() {
     const now = new Date();
@@ -532,7 +548,11 @@ async function renderShortcuts() {
                     ${group.sites.map(site => `
                         <a href="${site.url}" class="shortcut-item" target="_blank" data-site-id="${site.id}">
                             <div class="shortcut-icon">
-                                <img src="https://favicon.im/${new URL(site.url).hostname}" alt="${site.name} icon" style="width: 100%; height: 100%; object-fit: contain;" data-fallback="${site.name.charAt(0)}">
+                                ${site.icon && (site.icon.startsWith('http') || site.icon.startsWith('data:')) ? `
+                                    <img src="${site.icon}" alt="${site.name} icon" class="site-icon" data-site-name="${site.name}" data-hostname="${new URL(site.url).hostname}">
+                                ` : `
+                                    <img src="https://toolb.cn/favicon/${new URL(site.url).hostname}" alt="${site.name} icon" class="site-icon" data-site-name="${site.name}" data-hostname="${new URL(site.url).hostname}">
+                                `}
                             </div>
                             <span class="shortcut-name">${site.name}</span>
                         </a>
@@ -540,47 +560,14 @@ async function renderShortcuts() {
                 </div>
             </div>
         `).join('');
+        
+        document.querySelectorAll('.site-icon').forEach(handleIconError);
 
         // 重新初始化快捷方式事件
         initShortcuts();
-        
-        // 添加图片错误处理
-        addImageErrorHandlers();
     } catch (error) {
         console.error('Render shortcuts error:', error);
     }
-}
-
-// 添加图片错误处理函数
-function addImageErrorHandlers() {
-    const images = document.querySelectorAll('.shortcut-icon img');
-    images.forEach(img => {
-        img.onerror = function() {
-            this.onerror = null;
-            const parentNode = this.parentNode;
-            const fallback = this.dataset.fallback;
-            this.remove();
-            if (fallback && parentNode) {
-                parentNode.innerHTML = fallback;
-            }
-        };
-    });
-}
-
-// 添加管理页面图片错误处理函数
-function addPopupImageErrorHandlers() {
-    const images = document.querySelectorAll('.popup-site-icon img');
-    images.forEach(img => {
-        img.onerror = function() {
-            this.onerror = null;
-            const parentNode = this.parentNode;
-            const fallback = this.dataset.fallback;
-            this.remove();
-            if (fallback && parentNode) {
-                parentNode.innerHTML = fallback;
-            }
-        };
-    });
 }
 
 // 应用壁纸
@@ -821,6 +808,10 @@ function showPopup(type) {
                                 <label for="popup-site-url">网站地址</label>
                                 <input type="url" id="popup-site-url" class="form-control" required>
                             </div>
+                            <div class="form-group">
+                                <label for="popup-site-icon">网站图标 (可选)</label>
+                                <input type="url" id="popup-site-icon" class="form-control" placeholder="请输入图标URL">
+                            </div>
                             <div class="modal-buttons">
                                 <button type="button" id="popup-cancel-add-site" class="btn btn-secondary">取消</button>
                                 <button type="submit" class="btn btn-primary">添加</button>
@@ -843,6 +834,10 @@ function showPopup(type) {
                             <div class="form-group">
                                 <label for="popup-edit-site-url">网站地址</label>
                                 <input type="url" id="popup-edit-site-url" class="form-control" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="popup-edit-site-icon">网站图标 (可选)</label>
+                                <input type="url" id="popup-edit-site-icon" class="form-control" placeholder="请输入图标URL">
                             </div>
                             <div class="modal-buttons">
                                 <button type="button" id="popup-cancel-edit-site" class="btn btn-secondary">取消</button>
@@ -1191,22 +1186,15 @@ async function initPopupGroupsManagement(popupContent) {
             const group = this.data.groups.find(g => g.id === groupId);
             if (group) {
                 const id = `${groupId}-${Date.now()}`;
-                // 自动获取favicon
-                let icon = siteData.icon;
-                if (siteData.url) {
-                    try {
-                        const domain = new URL(siteData.url).hostname;
-                        icon = `https://favicon.im/${domain}`;
-                    } catch (error) {
-                        console.error('解析URL错误:', error);
-                        icon = siteData.icon || siteData.name.charAt(0);
-                    }
-                }
+                // 只在用户提供了自定义图标时才保存icon值
                 const newSite = {
                     id,
-                    ...siteData,
-                    icon: icon
+                    ...siteData
                 };
+                // 只有当用户明确提供了图标时才保存icon字段
+                if (siteData.icon && (siteData.icon.startsWith('http') || siteData.icon.startsWith('data:'))) {
+                    newSite.icon = siteData.icon;
+                }
                 group.sites.push(newSite);
                 await this.saveData();
                 return newSite;
@@ -1229,6 +1217,17 @@ async function initPopupGroupsManagement(popupContent) {
             if (group) {
                 const site = group.sites.find(s => s.id === siteId);
                 if (site) {
+                    // 只在用户提供了自定义图标时才更新icon值
+                    if (siteData.icon) {
+                        if (siteData.icon && (siteData.icon.startsWith('http') || siteData.icon.startsWith('data:'))) {
+                            site.icon = siteData.icon;
+                        } else {
+                            // 如果用户清空了图标输入框，删除icon字段
+                            delete site.icon;
+                        }
+                    }
+                    // 更新其他字段
+                    delete siteData.icon; // 避免直接覆盖
                     Object.assign(site, siteData);
                     await this.saveData();
                 }
@@ -1279,7 +1278,11 @@ async function initPopupGroupsManagement(popupContent) {
                         <div class="popup-site-item">
                             <div class="popup-site-info">
                                 <div class="popup-site-icon">
-                                    <img src="${site.icon.startsWith('http') ? site.icon : `https://favicon.im/${new URL(site.url).hostname}`}" alt="${site.name} icon" style="width: 100%; height: 100%; object-fit: contain;" data-fallback="${site.name.charAt(0)}">
+                                    ${site.icon && (site.icon.startsWith('http') || site.icon.startsWith('data:')) ? `
+                                        <img src="${site.icon}" alt="${site.name} icon" class="popup-site-icon-img" data-site-name="${site.name}" data-hostname="${new URL(site.url).hostname}">
+                                    ` : `
+                                        <img src="https://toolb.cn/favicon/${new URL(site.url).hostname}" alt="${site.name} icon" class="popup-site-icon-img" data-site-name="${site.name}" data-hostname="${new URL(site.url).hostname}">
+                                    `}
                                 </div>
                                 <div class="popup-site-details">
                                     <div class="popup-site-name">${site.name}</div>
@@ -1303,8 +1306,8 @@ async function initPopupGroupsManagement(popupContent) {
         // 绑定分组相关事件
         bindGroupEvents();
         
-        // 添加管理页面图片错误处理
-        addPopupImageErrorHandlers();
+        // 添加图标错误处理
+        document.querySelectorAll('.popup-site-icon-img').forEach(handleIconError);
     }
 
     // 绑定分组相关事件
@@ -1361,6 +1364,7 @@ async function initPopupGroupsManagement(popupContent) {
                         popupContent.querySelector('#popup-edit-site-id').value = siteId;
                         popupContent.querySelector('#popup-edit-site-name').value = site.name;
                         popupContent.querySelector('#popup-edit-site-url').value = site.url;
+                        popupContent.querySelector('#popup-edit-site-icon').value = site.icon || '';
                         
                         showModal('popup-edit-site-modal');
                     }
@@ -1419,24 +1423,6 @@ async function initPopupGroupsManagement(popupContent) {
         }
     }
 
-    // 显示消息
-    function showMessage(text) {
-        // 创建消息元素
-        let messageElement = popupContent.querySelector('.popup-message');
-        if (!messageElement) {
-            messageElement = document.createElement('div');
-            messageElement.className = 'popup-message';
-            popupContent.appendChild(messageElement);
-        }
-        messageElement.textContent = text;
-        messageElement.style.display = 'block';
-
-        // 3秒后隐藏
-        setTimeout(() => {
-            messageElement.style.display = 'none';
-        }, 3000);
-    }
-
     // 绑定添加分组按钮
     const addGroupButton = popupContent.querySelector('#popup-add-group-button');
     if (addGroupButton) {
@@ -1486,12 +1472,13 @@ async function initPopupGroupsManagement(popupContent) {
             const groupId = popupContent.querySelector('#popup-current-group-id').value;
             const siteName = popupContent.querySelector('#popup-site-name').value.trim();
             const siteUrl = popupContent.querySelector('#popup-site-url').value.trim();
+            const siteIcon = popupContent.querySelector('#popup-site-icon').value.trim();
 
             if (siteName && siteUrl) {
                 const siteData = {
                     name: siteName,
                     url: siteUrl,
-                    icon: siteName.charAt(0)
+                    icon: siteIcon || siteName.charAt(0)
                 };
                 await dataManager.addSite(groupId, siteData);
                 renderGroups();
@@ -1520,12 +1507,13 @@ async function initPopupGroupsManagement(popupContent) {
             const siteId = popupContent.querySelector('#popup-edit-site-id').value;
             const siteName = popupContent.querySelector('#popup-edit-site-name').value.trim();
             const siteUrl = popupContent.querySelector('#popup-edit-site-url').value.trim();
+            const siteIcon = popupContent.querySelector('#popup-edit-site-icon').value.trim();
 
             if (siteName && siteUrl) {
                 const siteData = {
                     name: siteName,
                     url: siteUrl,
-                    icon: siteName.charAt(0)
+                    icon: siteIcon || siteName.charAt(0)
                 };
                 await dataManager.updateSite(groupId, siteId, siteData);
                 renderGroups();
@@ -1709,22 +1697,6 @@ async function initPopupSearchEnginesManagement(popupContent) {
                 modal.classList.remove('modal-hide');
             }, 400);
         }
-    }
-
-    // 显示消息
-    function showMessage(text) {
-        let messageElement = popupContent.querySelector('.popup-message');
-        if (!messageElement) {
-            messageElement = document.createElement('div');
-            messageElement.className = 'popup-message';
-            popupContent.appendChild(messageElement);
-        }
-        messageElement.textContent = text;
-        messageElement.style.display = 'block';
-
-        setTimeout(() => {
-            messageElement.style.display = 'none';
-        }, 3000);
     }
 
     // 绑定添加搜索引擎按钮
@@ -1919,23 +1891,7 @@ async function initPopupWallpaperManagement(popupContent) {
     await wallpaperManager.loadCurrentWallpaper();
     await wallpaperManager.loadUploadedWallpapers();
 
-    // 显示消息
-    function showMessage(text) {
-        // 创建消息元素
-        let messageElement = popupContent.querySelector('.popup-message');
-        if (!messageElement) {
-            messageElement = document.createElement('div');
-            messageElement.className = 'popup-message';
-            popupContent.appendChild(messageElement);
-        }
-        messageElement.textContent = text;
-        messageElement.style.display = 'block';
 
-        // 3秒后隐藏
-        setTimeout(() => {
-            messageElement.style.display = 'none';
-        }, 3000);
-    }
 
     // 将已上传的壁纸添加到预览列表
     function addUploadedWallpapersToPreviews() {
