@@ -315,12 +315,14 @@ function initShortcuts() {
         item.addEventListener('dragover', function(e) {
             e.stopPropagation();
             e.preventDefault();
-            const draggedContainer = draggedItem.closest('.shortcut-items');
-            const targetContainer = this.closest('.shortcut-items');
-            if (draggedContainer === targetContainer) {
-                e.dataTransfer.dropEffect = 'move';
-            } else {
-                e.dataTransfer.dropEffect = 'none';
+            if (draggedItem) {
+                const draggedContainer = draggedItem.closest('.shortcut-items');
+                const targetContainer = this.closest('.shortcut-items');
+                if (draggedContainer === targetContainer) {
+                    e.dataTransfer.dropEffect = 'move';
+                } else {
+                    e.dataTransfer.dropEffect = 'none';
+                }
             }
         });
         
@@ -328,7 +330,7 @@ function initShortcuts() {
         item.addEventListener('dragenter', function(e) {
             e.stopPropagation();
             e.preventDefault();
-            if (this !== draggedItem) {
+            if (draggedItem && this !== draggedItem) {
                 const draggedContainer = draggedItem.closest('.shortcut-items');
                 const targetContainer = this.closest('.shortcut-items');
                 if (draggedContainer === targetContainer) {
@@ -349,7 +351,7 @@ function initShortcuts() {
             e.preventDefault();
             this.classList.remove('drag-over');
             
-            if (draggedItem !== this) {
+            if (draggedItem && draggedItem !== this) {
                 const parentContainer = this.closest('.shortcut-items');
                 const draggedContainer = draggedItem.closest('.shortcut-items');
                 
@@ -435,7 +437,7 @@ function initShortcuts() {
         group.addEventListener('dragenter', function(e) {
             e.stopPropagation();
             e.preventDefault();
-            if (this !== draggedGroup && !draggedItem) {
+            if (draggedGroup && this !== draggedGroup && !draggedItem) {
                 this.classList.add('drag-over');
             }
         });
@@ -457,7 +459,7 @@ function initShortcuts() {
                 return;
             }
             
-            if (draggedGroup !== this) {
+            if (draggedGroup && draggedGroup !== this) {
                 const shortcutsContainer = document.querySelector('.shortcuts');
                 const groupsArray = Array.from(shortcutsContainer.children);
                 const draggedIndex = groupsArray.indexOf(draggedGroup);
@@ -1477,9 +1479,12 @@ async function initPopupGroupsManagement(popupContent) {
             if (siteName && siteUrl) {
                 const siteData = {
                     name: siteName,
-                    url: siteUrl,
-                    icon: siteIcon || siteName.charAt(0)
+                    url: siteUrl
                 };
+                // 只有当用户明确提供了图标时才添加icon字段
+                if (siteIcon && (siteIcon.startsWith('http') || siteIcon.startsWith('data:'))) {
+                    siteData.icon = siteIcon;
+                }
                 await dataManager.addSite(groupId, siteData);
                 renderGroups();
                 hideModal('popup-add-site-modal');
@@ -1512,9 +1517,12 @@ async function initPopupGroupsManagement(popupContent) {
             if (siteName && siteUrl) {
                 const siteData = {
                     name: siteName,
-                    url: siteUrl,
-                    icon: siteIcon || siteName.charAt(0)
+                    url: siteUrl
                 };
+                // 只有当用户明确提供了图标时才添加icon字段
+                if (siteIcon && (siteIcon.startsWith('http') || siteIcon.startsWith('data:'))) {
+                    siteData.icon = siteIcon;
+                }
                 await dataManager.updateSite(groupId, siteId, siteData);
                 renderGroups();
                 hideModal('popup-edit-site-modal');
