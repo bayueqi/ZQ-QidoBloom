@@ -2512,7 +2512,8 @@ style.textContent = `
     }
     
     .popup-groups-container {
-        max-height: 300px;
+        max-height: 400px;
+        min-height: 220px;
         overflow-y: auto;
     }
     
@@ -2539,8 +2540,6 @@ style.textContent = `
     .popup-group-card {
         background: rgba(0, 0, 0, 0.02);
         border-radius: 8px;
-        padding: 16px;
-        margin-bottom: 12px;
     }
     
     .popup-group-header {
@@ -2906,7 +2905,7 @@ style.textContent = `
         backdrop-filter: blur(20px);
         -webkit-backdrop-filter: blur(20px);
         border-radius: 16px;
-        padding: 32px;
+        padding: 10px;
         width: 90%;
         max-width: 400px;
         box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
