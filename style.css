@@ -343,8 +343,8 @@ body.clicked-outside .manage-dropdown-menu {
 .form-group {
     display: flex;
     flex-direction: column;
-    gap: 12px;
-    margin-bottom: 20px;
+    gap: 5px;
+    margin-bottom: 10px;
 }
 
 .form-group label {
