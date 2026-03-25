@@ -6,10 +6,10 @@ function handleIconError(img) {
     img.addEventListener('error', function() {
         this.onerror = null;
         const parent = this.parentElement;
-        const hostname = this.dataset.hostname;
+        const siteName = this.dataset.siteName;
         this.remove();
-        if (parent && hostname) {
-            parent.innerHTML = hostname.charAt(0).toUpperCase();
+        if (parent && siteName) {
+            parent.innerHTML = siteName.charAt(0).toUpperCase();
         }
     });
 }
