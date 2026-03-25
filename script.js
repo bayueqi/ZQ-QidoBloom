@@ -1,7 +1,348 @@
+// 数据管理类
+class PopupDataManager {
+    constructor() {
+        this.data = {
+            groups: []
+        };
+    }
+
+    // 从localStorage加载数据
+    async loadData() {
+        try {
+            const savedData = localStorage.getItem('startpage-data');
+            if (savedData) {
+                try {
+                    this.data = JSON.parse(savedData);
+                } catch (error) {
+                    console.error('Failed to parse saved data:', error);
+                    this.initDefaultData();
+                }
+            } else {
+                this.initDefaultData();
+            }
+        } catch (error) {
+            console.error('Load data error:', error);
+            this.initDefaultData();
+        }
+    }
+
+    // 初始化默认数据
+    initDefaultData() {
+        this.data = {
+            groups: [],
+            wallpaper: 'white'
+        };
+        this.saveData();
+    }
+
+    // 保存数据
+    async saveData() {
+        try {
+            localStorage.setItem('startpage-data', JSON.stringify(this.data));
+        } catch (error) {
+            console.error('Save data error:', error);
+        }
+    }
+
+    // 获取所有分组
+    getGroups() {
+        return this.data.groups;
+    }
+
+    // 添加分组
+    async addGroup(name) {
+        const id = Date.now().toString();
+        const newGroup = {
+            id,
+            name,
+            sites: []
+        };
+        this.data.groups.push(newGroup);
+        await this.saveData();
+        return newGroup;
+    }
+
+    // 删除分组
+    async deleteGroup(id) {
+        this.data.groups = this.data.groups.filter(group => group.id !== id);
+        await this.saveData();
+    }
+
+    // 添加网站到分组
+    async addSite(groupId, siteData) {
+        const group = this.data.groups.find(g => g.id === groupId);
+        if (group) {
+            const id = `${groupId}-${Date.now()}`;
+            // 只在用户提供了自定义图标时才保存icon值
+            const newSite = {
+                id,
+                ...siteData
+            };
+            // 只有当用户明确提供了图标时才保存icon字段
+            if (siteData.icon && (siteData.icon.startsWith('http') || siteData.icon.startsWith('data:'))) {
+                newSite.icon = siteData.icon;
+            }
+            group.sites.push(newSite);
+            await this.saveData();
+            return newSite;
+        }
+        return null;
+    }
+
+    // 删除网站
+    async deleteSite(groupId, siteId) {
+        const group = this.data.groups.find(g => g.id === groupId);
+        if (group) {
+            group.sites = group.sites.filter(site => site.id !== siteId);
+            await this.saveData();
+        }
+    }
+
+    // 更新网站
+    async updateSite(groupId, siteId, siteData) {
+        const group = this.data.groups.find(g => g.id === groupId);
+        if (group) {
+            const site = group.sites.find(s => s.id === siteId);
+            if (site) {
+                // 只在用户提供了自定义图标时才更新icon值
+                if (siteData.icon) {
+                    if (siteData.icon && (siteData.icon.startsWith('http') || siteData.icon.startsWith('data:'))) {
+                        site.icon = siteData.icon;
+                    } else {
+                        // 如果用户清空了图标输入框，删除icon字段
+                        delete site.icon;
+                    }
+                }
+                // 更新其他字段
+                delete siteData.icon; // 避免直接覆盖
+                Object.assign(site, siteData);
+                await this.saveData();
+            }
+        }
+    }
+
+    // 更新分组
+    async updateGroup(groupId, groupData) {
+        const group = this.data.groups.find(g => g.id === groupId);
+        if (group) {
+            Object.assign(group, groupData);
+            await this.saveData();
+        }
+    }
+}
+
+// 搜索引擎管理类
+class SearchEnginesManager {
+    constructor() {
+        this.engines = [];
+        this.defaultEngines = [
+            { id: 'bing', name: '必应', url: 'https://www.bing.com/search?q={q}' },
+            { id: 'google', name: 'Google', url: 'https://www.google.com/search?q={q}' },
+            { id: 'baidu', name: '百度', url: 'https://www.baidu.com/s?wd={q}' },
+        ];
+    }
+
+    // 加载数据
+    async loadData() {
+        try {
+            const localData = localStorage.getItem('searchEngines');
+            if (localData) {
+                try {
+                    this.engines = JSON.parse(localData);
+                } catch (error) {
+                    console.error('Failed to parse saved engines:', error);
+                    this.engines = [...this.defaultEngines];
+                    this.saveData();
+                }
+            } else {
+                this.engines = [...this.defaultEngines];
+                this.saveData();
+            }
+        } catch (error) {
+            console.error('Load engines error:', error);
+            this.engines = [...this.defaultEngines];
+            this.saveData();
+        }
+    }
+
+    // 保存数据
+    async saveData() {
+        try {
+            localStorage.setItem('searchEngines', JSON.stringify(this.engines));
+        } catch (error) {
+            console.error('Save engines error:', error);
+        }
+    }
+
+    // 获取所有搜索引擎
+    getEngines() {
+        return this.engines;
+    }
+
+    // 添加搜索引擎
+    async addEngine(engineData) {
+        const newEngine = {
+            id: 'custom_' + Date.now(),
+            name: engineData.name,
+            url: engineData.url
+        };
+        this.engines.push(newEngine);
+        await this.saveData();
+        return newEngine;
+    }
+
+    // 删除搜索引擎
+    async deleteEngine(engineId) {
+        this.engines = this.engines.filter(e => e.id !== engineId);
+        await this.saveData();
+    }
+
+    // 更新搜索引擎
+    async updateEngine(engineId, engineData) {
+        const engine = this.engines.find(e => e.id === engineId);
+        if (engine) {
+            engine.name = engineData.name;
+            engine.url = engineData.url;
+            await this.saveData();
+        }
+    }
+
+    // 设置默认搜索引擎
+    async setDefaultEngine(id) {
+        this.engines.forEach(engine => {
+            engine.default = engine.id === id;
+        });
+        await this.saveData();
+    }
+
+    // 获取默认搜索引擎
+    getDefaultEngine() {
+        return this.engines.find(engine => engine.default) || this.engines[0];
+    }
+}
+
+// 壁纸管理类
+class PopupWallpaperManager {
+    constructor() {
+        this.currentWallpaper = 'white';
+        this.uploadedWallpapers = [];
+    }
+
+    // 加载当前壁纸
+    async loadCurrentWallpaper() {
+        try {
+            const savedData = localStorage.getItem('startpage-data');
+            if (savedData) {
+                const data = JSON.parse(savedData);
+                this.currentWallpaper = data.wallpaper || 'white';
+            }
+        } catch (error) {
+            console.error('Load wallpaper error:', error);
+            this.currentWallpaper = 'white';
+        }
+    }
+
+    // 加载所有已上传的壁纸
+    async loadUploadedWallpapers() {
+        try {
+            const savedData = localStorage.getItem('startpage-data');
+            if (savedData) {
+                const data = JSON.parse(savedData);
+                this.uploadedWallpapers = data.uploadedWallpapers || [];
+            }
+        } catch (error) {
+            console.error('Load uploaded wallpapers error:', error);
+            this.uploadedWallpapers = [];
+        }
+    }
+
+    // 保存壁纸设置
+    async saveWallpaper(wallpaper) {
+        try {
+            const savedData = localStorage.getItem('startpage-data');
+            let data = savedData ? JSON.parse(savedData) : { groups: [] };
+            data.wallpaper = wallpaper;
+            this.currentWallpaper = wallpaper;
+            localStorage.setItem('startpage-data', JSON.stringify(data));
+
+            return true;
+        } catch (error) {
+            console.error('Save wallpaper error:', error);
+            return false;
+        }
+    }
+
+    // 保存所有已上传的壁纸
+    async saveUploadedWallpapers(wallpapers) {
+        try {
+            const savedData = localStorage.getItem('startpage-data');
+            let data = savedData ? JSON.parse(savedData) : { groups: [] };
+            data.uploadedWallpapers = wallpapers;
+            this.uploadedWallpapers = wallpapers;
+            localStorage.setItem('startpage-data', JSON.stringify(data));
+
+            return true;
+        } catch (error) {
+            console.error('Save uploaded wallpapers error:', error);
+            return false;
+        }
+    }
+
+    // 添加上传的壁纸到列表
+    async addUploadedWallpaper(wallpaper) {
+        if (!this.uploadedWallpapers.includes(wallpaper)) {
+            this.uploadedWallpapers.push(wallpaper);
+            await this.saveUploadedWallpapers(this.uploadedWallpapers);
+        }
+    }
+
+    // 删除上传的壁纸
+    async removeUploadedWallpaper(wallpaper) {
+        this.uploadedWallpapers = this.uploadedWallpapers.filter(w => w !== wallpaper);
+        await this.saveUploadedWallpapers(this.uploadedWallpapers);
+    }
+
+    // 应用壁纸
+    applyWallpaper(wallpaper) {
+        const body = document.body;
+        
+        if (wallpaper === 'white') {
+            body.style.background = 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)';
+        } else if (wallpaper.startsWith('img/')) {
+            // 处理本地图片
+            body.style.background = `url('${wallpaper}') no-repeat center center fixed`;
+            body.style.backgroundSize = 'cover';
+        } else if (wallpaper.startsWith('data:')) {
+            // 处理base64图片
+            body.style.background = `url('${wallpaper}') no-repeat center center fixed`;
+            body.style.backgroundSize = 'cover';
+        } else if (wallpaper.startsWith('http')) {
+            // 处理URL图片
+            body.style.background = `url('${wallpaper}') no-repeat center center fixed`;
+            body.style.backgroundSize = 'cover';
+        }
+    }
+
+    // 处理图片上传
+    async handleImageUpload(file) {
+        return new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const base64Image = e.target.result;
+                resolve(base64Image);
+            };
+            reader.onerror = function() {
+                resolve(null);
+            };
+            reader.readAsDataURL(file);
+        });
+    }
+}
+
 // 获取图标 API URL
 function getIconApiUrl() {
     try {
-        const savedSettings = localStorage.getItem('startpage-settings');
+        const savedSettings = localStorage.getItem('startpage-faviconapi');
         if (savedSettings) {
             const settings = JSON.parse(savedSettings);
             return settings.iconApiUrl || 'https://toolb.cn/favicon/{domain}';
@@ -107,7 +448,7 @@ async function exportConfig() {
         }
 
         // 获取图标来源 API 设置
-        const savedSettings = localStorage.getItem('startpage-settings');
+        const savedSettings = localStorage.getItem('startpage-faviconapi');
         if (savedSettings) {
             try {
                 const settings = JSON.parse(savedSettings);
@@ -130,11 +471,154 @@ async function exportConfig() {
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
 
-        alert('配置导出成功！');
+        showMessage('配置导出成功！');
     } catch (error) {
         console.error('Export config error:', error);
-        alert('配置导出失败：' + error.message);
+        showMessage('配置导出失败：' + error.message, 'error');
     }
+}
+
+// 显示自定义提示消息
+function showMessage(text, type = 'success') {
+    // 移除旧的消息
+    const oldMessage = document.getElementById('auth-message');
+    if (oldMessage) {
+        oldMessage.remove();
+    }
+
+    // 创建新的消息元素
+    const message = document.createElement('div');
+    message.id = 'auth-message';
+    message.className = `message ${type}`;
+    message.textContent = text;
+    message.style.cssText = `
+        position: fixed;
+        top: 38px;
+        right: 164px;
+        padding: 10px 15px;
+        border-radius: 6px;
+        color: ${type === 'error' ? 'rgba(255, 0, 0, 0.8)' : 'rgba(0, 0, 0, 0.8)'};
+        font-weight: 400;
+        font-size: 14px;
+        z-index: 10000;
+        animation: slideInRight 0.3s ease-out;
+        background: rgba(255, 255, 255, 0.6);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        border: 1px solid rgba(0, 0, 0, 0.1);
+    `;
+
+    document.body.appendChild(message);
+
+    // 3秒后自动移除
+    setTimeout(() => {
+        message.style.animation = 'slideOutRight 0.3s ease-in forwards';
+        setTimeout(() => message.remove(), 300);
+    }, 3000);
+}
+
+// 显示自定义确认对话框
+function showConfirmDialog(title, message, onConfirm, onCancel) {
+    // 移除旧的对话框
+    const oldDialog = document.getElementById('custom-dialog');
+    if (oldDialog) {
+        oldDialog.remove();
+    }
+
+    // 创建对话框容器
+    const dialog = document.createElement('div');
+    dialog.id = 'custom-dialog';
+    dialog.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.5);
+        backdrop-filter: blur(5px);
+        -webkit-backdrop-filter: blur(5px);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 9999;
+    `;
+
+    // 创建对话框内容
+    const content = document.createElement('div');
+    content.className = 'modal-content';
+    content.style.cssText = `
+        background: rgba(255, 255, 255, 0.85);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border-radius: 16px;
+        padding: 32px;
+        width: 90%;
+        max-width: 400px;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        transform: translateY(50px) scale(0.98);
+        opacity: 0;
+        transition: transform 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94), opacity 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    `;
+    content.innerHTML = `
+        <h3 style="margin: 0 0 24px 0; font-size: 1.3rem; font-weight: 600; color: #000000; text-align: center;">${title}</h3>
+        <p style="margin: 0 0 24px 0; color: #000000;">${message}</p>
+        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px;">
+            <button id="dialog-cancel" style="
+                padding: 8px 16px;
+                border: 1px solid rgba(0, 0, 0, 0.2);
+                border-radius: 8px;
+                background: rgba(255, 255, 255, 0.8);
+                cursor: pointer;
+                font-size: 14px;
+                transition: all 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+            ">取消</button>
+            <button id="dialog-confirm" style="
+                padding: 8px 16px;
+                border: none;
+                border-radius: 8px;
+                background: rgba(0, 0, 0, 0.8);
+                color: white;
+                cursor: pointer;
+                font-size: 14px;
+                transition: all 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+            ">确定</button>
+        </div>
+    `;
+
+    dialog.appendChild(content);
+    document.body.appendChild(dialog);
+
+    // 添加动画效果
+    setTimeout(() => {
+        content.style.transform = 'translateY(0) scale(1)';
+        content.style.opacity = '1';
+    }, 10);
+
+    // 绑定事件
+    document.getElementById('dialog-cancel').addEventListener('click', () => {
+        content.style.transform = 'translateY(50px) scale(0.98)';
+        content.style.opacity = '0';
+        setTimeout(() => dialog.remove(), 300);
+        if (onCancel) onCancel();
+    });
+
+    document.getElementById('dialog-confirm').addEventListener('click', () => {
+        content.style.transform = 'translateY(50px) scale(0.98)';
+        content.style.opacity = '0';
+        setTimeout(() => dialog.remove(), 300);
+        if (onConfirm) onConfirm();
+    });
+
+    // 点击背景关闭
+    dialog.addEventListener('click', (e) => {
+        if (e.target === dialog) {
+            content.style.transform = 'translateY(50px) scale(0.98)';
+            content.style.opacity = '0';
+            setTimeout(() => dialog.remove(), 300);
+            if (onCancel) onCancel();
+        }
+    });
 }
 
 // 导入配置
@@ -155,7 +639,7 @@ function importConfig() {
                 throw new Error('配置文件格式不正确');
             }
 
-            if (confirm('导入配置将覆盖当前设置，确定要继续吗？')) {
+            showConfirmDialog('导入配置', '导入配置将覆盖当前设置，确定要继续吗？', async () => {
                 // 导入分组数据
                 if (config.data.groups && config.data.groups.length > 0) {
                     const currentData = await loadShortcutsData();
@@ -187,15 +671,17 @@ function importConfig() {
                     const settings = {
                         iconApiUrl: config.data.iconApiUrl
                     };
-                    localStorage.setItem('startpage-settings', JSON.stringify(settings));
+                    localStorage.setItem('startpage-faviconapi', JSON.stringify(settings));
                 }
 
-                alert('配置导入成功！页面将自动刷新。');
-                window.location.reload();
-            }
+                showMessage('配置导入成功！页面将自动刷新。');
+                setTimeout(() => {
+                    window.location.reload();
+                }, 1000);
+            });
         } catch (error) {
             console.error('Import config error:', error);
-            alert('配置导入失败：' + error.message);
+            showMessage('配置导入失败：' + error.message, 'error');
         }
     };
 
@@ -1103,199 +1589,13 @@ function closePopup() {
 
 
 
-// 显示消息提示
-function showMessage(text, type = 'info') {
-    // 移除旧的消息
-    const oldMessage = document.getElementById('auth-message');
-    if (oldMessage) {
-        oldMessage.remove();
-    }
 
-    // 创建新的消息元素
-    const message = document.createElement('div');
-    message.id = 'auth-message';
-    message.className = `message ${type}`;
-    message.textContent = text;
-    message.style.cssText = `
-        position: fixed;
-        top: 20px;
-        right: 20px;
-        padding: 15px 20px;
-        border-radius: 8px;
-        color: white;
-        font-weight: 500;
-        z-index: 10000;
-        animation: slideInRight 0.3s ease-out;
-        background: ${type === 'success' ? '#4CAF50' : type === 'error' ? '#f44336' : '#2196F3'};
-    `;
-
-    // 添加动画
-    const style = document.createElement('style');
-    style.textContent = `
-        @keyframes slideInRight {
-            from {
-                transform: translateX(100%);
-                opacity: 0;
-            }
-            to {
-                transform: translateX(0);
-                opacity: 1;
-            }
-        }
-    `;
-    document.head.appendChild(style);
-
-    // 添加到页面
-    document.body.appendChild(message);
-
-    // 3秒后自动移除
-    setTimeout(() => {
-        message.style.animation = 'slideInRight 0.3s ease-out reverse';
-        setTimeout(() => {
-            message.remove();
-            style.remove();
-        }, 300);
-    }, 3000);
-}
 
 // 初始化管理下拉菜单
 initManageDropdown();
 
 // 初始化弹出界面中的分组管理功能
 async function initPopupGroupsManagement(popupContent) {
-    // 数据管理类
-    class PopupDataManager {
-        constructor() {
-            this.data = {
-                groups: []
-            };
-        }
-
-        // 从localStorage加载数据
-        async loadData() {
-            try {
-                const savedData = localStorage.getItem('startpage-data');
-                if (savedData) {
-                    try {
-                        this.data = JSON.parse(savedData);
-                    } catch (error) {
-                        console.error('Failed to parse saved data:', error);
-                        this.initDefaultData();
-                    }
-                } else {
-                    this.initDefaultData();
-                }
-            } catch (error) {
-                console.error('Load data error:', error);
-                this.initDefaultData();
-            }
-        }
-
-        // 初始化默认数据
-        initDefaultData() {
-            this.data = {
-                groups: [],
-                wallpaper: 'white'
-            };
-            this.saveData();
-        }
-
-        // 保存数据
-        async saveData() {
-            try {
-                localStorage.setItem('startpage-data', JSON.stringify(this.data));
-            } catch (error) {
-                console.error('Save data error:', error);
-            }
-        }
-
-        // 获取所有分组
-        getGroups() {
-            return this.data.groups;
-        }
-
-        // 添加分组
-        async addGroup(name) {
-            const id = Date.now().toString();
-            const newGroup = {
-                id,
-                name,
-                sites: []
-            };
-            this.data.groups.push(newGroup);
-            await this.saveData();
-            return newGroup;
-        }
-
-        // 删除分组
-        async deleteGroup(id) {
-            this.data.groups = this.data.groups.filter(group => group.id !== id);
-            await this.saveData();
-        }
-
-        // 添加网站到分组
-        async addSite(groupId, siteData) {
-            const group = this.data.groups.find(g => g.id === groupId);
-            if (group) {
-                const id = `${groupId}-${Date.now()}`;
-                // 只在用户提供了自定义图标时才保存icon值
-                const newSite = {
-                    id,
-                    ...siteData
-                };
-                // 只有当用户明确提供了图标时才保存icon字段
-                if (siteData.icon && (siteData.icon.startsWith('http') || siteData.icon.startsWith('data:'))) {
-                    newSite.icon = siteData.icon;
-                }
-                group.sites.push(newSite);
-                await this.saveData();
-                return newSite;
-            }
-            return null;
-        }
-
-        // 删除网站
-        async deleteSite(groupId, siteId) {
-            const group = this.data.groups.find(g => g.id === groupId);
-            if (group) {
-                group.sites = group.sites.filter(site => site.id !== siteId);
-                await this.saveData();
-            }
-        }
-
-        // 更新网站
-        async updateSite(groupId, siteId, siteData) {
-            const group = this.data.groups.find(g => g.id === groupId);
-            if (group) {
-                const site = group.sites.find(s => s.id === siteId);
-                if (site) {
-                    // 只在用户提供了自定义图标时才更新icon值
-                    if (siteData.icon) {
-                        if (siteData.icon && (siteData.icon.startsWith('http') || siteData.icon.startsWith('data:'))) {
-                            site.icon = siteData.icon;
-                        } else {
-                            // 如果用户清空了图标输入框，删除icon字段
-                            delete site.icon;
-                        }
-                    }
-                    // 更新其他字段
-                    delete siteData.icon; // 避免直接覆盖
-                    Object.assign(site, siteData);
-                    await this.saveData();
-                }
-            }
-        }
-
-        // 更新分组
-        async updateGroup(groupId, groupData) {
-            const group = this.data.groups.find(g => g.id === groupId);
-            if (group) {
-                Object.assign(group, groupData);
-                await this.saveData();
-            }
-        }
-    }
-
     // 初始化数据管理器
     const dataManager = new PopupDataManager();
     await dataManager.loadData();
@@ -1364,82 +1664,80 @@ async function initPopupGroupsManagement(popupContent) {
 
     // 绑定分组相关事件
     function bindGroupEvents() {
-        // 添加网站按钮
-        popupContent.querySelectorAll('.popup-add-site-btn').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                const groupId = e.currentTarget.dataset.groupId;
-                popupContent.querySelector('#popup-current-group-id').value = groupId;
-                showModal('popup-add-site-modal');
-            });
-        });
-
-        // 删除分组按钮
-        popupContent.querySelectorAll('.popup-delete-group-btn').forEach(btn => {
-            btn.addEventListener('click', async (e) => {
-                const groupId = e.currentTarget.dataset.groupId;
-                if (confirm('确定要删除这个分组吗？所有网站也会被删除。')) {
-                    await dataManager.deleteGroup(groupId);
-                    renderGroups();
-                    showMessage('分组已删除');
-                    renderShortcuts();
-                }
-            });
-        });
-
-        // 删除网站按钮
-        popupContent.querySelectorAll('.popup-delete-site-btn').forEach(btn => {
-            btn.addEventListener('click', async (e) => {
-                const groupId = e.currentTarget.dataset.groupId;
-                const siteId = e.currentTarget.dataset.siteId;
-                if (confirm('确定要删除这个网站吗？')) {
-                    await dataManager.deleteSite(groupId, siteId);
-                    renderGroups();
-                    showMessage('网站已删除');
-                    renderShortcuts();
-                }
-            });
-        });
-
-        // 编辑网站按钮
-        popupContent.querySelectorAll('.popup-edit-site-btn').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                const groupId = e.currentTarget.dataset.groupId;
-                const siteId = e.currentTarget.dataset.siteId;
+        // 使用事件委托处理所有按钮点击
+        const groupsContainer = popupContent.querySelector('#popup-groups-container');
+        if (groupsContainer) {
+            groupsContainer.addEventListener('click', async (e) => {
+                const target = e.target;
                 
-                // 找到对应的网站数据
-                const group = dataManager.getGroups().find(g => g.id === groupId);
-                if (group) {
-                    const site = group.sites.find(s => s.id === siteId);
-                    if (site) {
+                // 添加网站按钮
+                if (target.classList.contains('popup-add-site-btn')) {
+                    const groupId = target.dataset.groupId;
+                    popupContent.querySelector('#popup-current-group-id').value = groupId;
+                    showModal('popup-add-site-modal');
+                }
+                
+                // 删除分组按钮
+                else if (target.classList.contains('popup-delete-group-btn')) {
+                    const groupId = target.dataset.groupId;
+                    showConfirmDialog('删除分组', '确定要删除这个分组吗？所有网站也会被删除。', async () => {
+                        await dataManager.deleteGroup(groupId);
+                        renderGroups();
+                        showMessage('分组已删除');
+                        renderShortcuts();
+                    });
+                }
+                
+                // 删除网站按钮
+                else if (target.classList.contains('popup-delete-site-btn')) {
+                    const groupId = target.dataset.groupId;
+                    const siteId = target.dataset.siteId;
+                    showConfirmDialog('删除网站', '确定要删除这个网站吗？', async () => {
+                        await dataManager.deleteSite(groupId, siteId);
+                        renderGroups();
+                        showMessage('网站已删除');
+                        renderShortcuts();
+                    });
+                }
+                
+                // 编辑网站按钮
+                else if (target.classList.contains('popup-edit-site-btn')) {
+                    const groupId = target.dataset.groupId;
+                    const siteId = target.dataset.siteId;
+                    
+                    // 找到对应的网站数据
+                    const group = dataManager.getGroups().find(g => g.id === groupId);
+                    if (group) {
+                        const site = group.sites.find(s => s.id === siteId);
+                        if (site) {
+                            // 填充表单
+                            popupContent.querySelector('#popup-edit-group-id').value = groupId;
+                            popupContent.querySelector('#popup-edit-site-id').value = siteId;
+                            popupContent.querySelector('#popup-edit-site-name').value = site.name;
+                            popupContent.querySelector('#popup-edit-site-url').value = site.url;
+                            popupContent.querySelector('#popup-edit-site-icon').value = site.icon || '';
+                            
+                            showModal('popup-edit-site-modal');
+                        }
+                    }
+                }
+                
+                // 编辑分组按钮
+                else if (target.classList.contains('popup-edit-group-btn')) {
+                    const groupId = target.dataset.groupId;
+                    
+                    // 找到对应的分组数据
+                    const group = dataManager.getGroups().find(g => g.id === groupId);
+                    if (group) {
                         // 填充表单
                         popupContent.querySelector('#popup-edit-group-id').value = groupId;
-                        popupContent.querySelector('#popup-edit-site-id').value = siteId;
-                        popupContent.querySelector('#popup-edit-site-name').value = site.name;
-                        popupContent.querySelector('#popup-edit-site-url').value = site.url;
-                        popupContent.querySelector('#popup-edit-site-icon').value = site.icon || '';
+                        popupContent.querySelector('#popup-edit-group-name').value = group.name;
                         
-                        showModal('popup-edit-site-modal');
+                        showModal('popup-edit-group-modal');
                     }
                 }
             });
-        });
-        
-        // 编辑分组按钮
-        popupContent.querySelectorAll('.popup-edit-group-btn').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                const groupId = e.currentTarget.dataset.groupId;
-                
-                // 找到对应的分组数据
-                const group = dataManager.getGroups().find(g => g.id === groupId);
-                if (group) {
-                    // 填充表单
-                    popupContent.querySelector('#popup-edit-group-id').value = groupId;
-                    popupContent.querySelector('#popup-edit-group-name').value = group.name;
-                    
-                    showModal('popup-edit-group-modal');
-                }
-            });
-        });
+        }
     }
 
     // 显示模态框
@@ -1619,65 +1917,6 @@ async function initPopupGroupsManagement(popupContent) {
 
 // 初始化弹出界面中的搜索引擎管理功能
 async function initPopupSearchEnginesManagement(popupContent) {
-    // 数据管理类
-    class SearchEnginesManager {
-        constructor() {
-            this.engines = [];
-            this.defaultEngines = [
-                { id: 'bing', name: '必应', url: 'https://www.bing.com/search?q={q}' },
-                { id: 'google', name: 'Google', url: 'https://www.google.com/search?q={q}' },
-                { id: 'baidu', name: '百度', url: 'https://www.baidu.com/s?wd={q}' },
-            ];
-        }
-
-        // 加载数据
-        async loadData() {
-            const localData = localStorage.getItem('searchEngines');
-            if (localData) {
-                this.engines = JSON.parse(localData);
-            } else {
-                this.engines = [...this.defaultEngines];
-            }
-        }
-
-        // 保存数据
-        async saveData() {
-            localStorage.setItem('searchEngines', JSON.stringify(this.engines));
-        }
-
-        // 获取所有搜索引擎
-        getEngines() {
-            return this.engines;
-        }
-
-        // 添加搜索引擎
-        async addEngine(engineData) {
-            const newEngine = {
-                id: 'custom_' + Date.now(),
-                name: engineData.name,
-                url: engineData.url
-            };
-            this.engines.push(newEngine);
-            await this.saveData();
-        }
-
-        // 更新搜索引擎
-        async updateEngine(engineId, engineData) {
-            const engine = this.engines.find(e => e.id === engineId);
-            if (engine) {
-                engine.name = engineData.name;
-                engine.url = engineData.url;
-                await this.saveData();
-            }
-        }
-
-        // 删除搜索引擎
-        async deleteEngine(engineId) {
-            this.engines = this.engines.filter(e => e.id !== engineId);
-            await this.saveData();
-        }
-    }
-
     // 初始化数据管理器
     const enginesManager = new SearchEnginesManager();
     await enginesManager.loadData();
@@ -1717,12 +1956,12 @@ async function initPopupSearchEnginesManagement(popupContent) {
         container.querySelectorAll('.delete-engine-btn').forEach(btn => {
             btn.addEventListener('click', async () => {
                 const engineId = btn.dataset.id;
-                if (confirm('确定要删除这个搜索引擎吗？')) {
+                showConfirmDialog('删除搜索引擎', '确定要删除这个搜索引擎吗？', async () => {
                     await enginesManager.deleteEngine(engineId);
                     renderEngines();
                     showMessage('搜索引擎已删除');
                     initNewSearch();
-                }
+                });
             });
         });
     }
@@ -1826,124 +2065,6 @@ async function initPopupSearchEnginesManagement(popupContent) {
 
 // 初始化弹出界面中的壁纸设置功能
 async function initPopupWallpaperManagement(popupContent) {
-    // 数据管理类
-    class PopupWallpaperManager {
-        constructor() {
-            this.currentWallpaper = 'white';
-            this.uploadedWallpapers = [];
-        }
-
-        // 加载当前壁纸
-        async loadCurrentWallpaper() {
-            try {
-                const savedData = localStorage.getItem('startpage-data');
-                if (savedData) {
-                    const data = JSON.parse(savedData);
-                    this.currentWallpaper = data.wallpaper || 'white';
-                }
-            } catch (error) {
-                console.error('Load wallpaper error:', error);
-                this.currentWallpaper = 'white';
-            }
-        }
-
-        // 加载所有已上传的壁纸
-        async loadUploadedWallpapers() {
-            try {
-                const savedData = localStorage.getItem('startpage-data');
-                if (savedData) {
-                    const data = JSON.parse(savedData);
-                    this.uploadedWallpapers = data.uploadedWallpapers || [];
-                }
-            } catch (error) {
-                console.error('Load uploaded wallpapers error:', error);
-                this.uploadedWallpapers = [];
-            }
-        }
-
-        // 保存壁纸设置
-        async saveWallpaper(wallpaper) {
-            try {
-                const savedData = localStorage.getItem('startpage-data');
-                let data = savedData ? JSON.parse(savedData) : { groups: [] };
-                data.wallpaper = wallpaper;
-                this.currentWallpaper = wallpaper;
-                localStorage.setItem('startpage-data', JSON.stringify(data));
-
-                return true;
-            } catch (error) {
-                console.error('Save wallpaper error:', error);
-                return false;
-            }
-        }
-
-        // 保存所有已上传的壁纸
-        async saveUploadedWallpapers(wallpapers) {
-            try {
-                const savedData = localStorage.getItem('startpage-data');
-                let data = savedData ? JSON.parse(savedData) : { groups: [] };
-                data.uploadedWallpapers = wallpapers;
-                this.uploadedWallpapers = wallpapers;
-                localStorage.setItem('startpage-data', JSON.stringify(data));
-
-                return true;
-            } catch (error) {
-                console.error('Save uploaded wallpapers error:', error);
-                return false;
-            }
-        }
-
-        // 添加上传的壁纸到列表
-        async addUploadedWallpaper(wallpaper) {
-            if (!this.uploadedWallpapers.includes(wallpaper)) {
-                this.uploadedWallpapers.push(wallpaper);
-                await this.saveUploadedWallpapers(this.uploadedWallpapers);
-            }
-        }
-
-        // 删除上传的壁纸
-        async removeUploadedWallpaper(wallpaper) {
-            this.uploadedWallpapers = this.uploadedWallpapers.filter(w => w !== wallpaper);
-            await this.saveUploadedWallpapers(this.uploadedWallpapers);
-        }
-
-        // 应用壁纸
-        applyWallpaper(wallpaper) {
-            const body = document.body;
-            
-            if (wallpaper === 'white') {
-                body.style.background = 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)';
-            } else if (wallpaper.startsWith('img/')) {
-                // 处理本地图片
-                body.style.background = `url('${wallpaper}') no-repeat center center fixed`;
-                body.style.backgroundSize = 'cover';
-            } else if (wallpaper.startsWith('data:')) {
-                // 处理base64图片
-                body.style.background = `url('${wallpaper}') no-repeat center center fixed`;
-                body.style.backgroundSize = 'cover';
-            } else if (wallpaper.startsWith('http')) {
-                // 处理URL图片
-                body.style.background = `url('${wallpaper}') no-repeat center center fixed`;
-                body.style.backgroundSize = 'cover';
-            }
-        }
-
-        // 处理图片上传
-        async handleImageUpload(file) {
-            return new Promise((resolve) => {
-                const reader = new FileReader();
-                reader.onload = function(e) {
-                    const base64Image = e.target.result;
-                    resolve(base64Image);
-                };
-                reader.onerror = function() {
-                    resolve(null);
-                };
-                reader.readAsDataURL(file);
-            });
-        }
-    }
-
     // 初始化壁纸管理器
     const wallpaperManager = new PopupWallpaperManager();
     await wallpaperManager.loadCurrentWallpaper();
@@ -1988,7 +2109,7 @@ async function initPopupWallpaperManagement(popupContent) {
                         e.stopPropagation();
                         const wallpaper = this.dataset.wallpaper;
                         
-                        if (confirm('确定要删除这个壁纸吗？')) {
+                        showConfirmDialog('删除壁纸', '确定要删除这个壁纸吗？', async () => {
                             await wallpaperManager.removeUploadedWallpaper(wallpaper);
                             
                             // 如果删除的是当前壁纸，重置为默认壁纸
@@ -1996,8 +2117,8 @@ async function initPopupWallpaperManagement(popupContent) {
                             if (savedData) {
                                 try {
                                     const data = JSON.parse(savedData);
-                                    if (data.currentWallpaper === wallpaper) {
-                                        data.currentWallpaper = 'white';
+                                    if (data.wallpaper === wallpaper) {
+                                        data.wallpaper = 'white';
                                         localStorage.setItem('startpage-data', JSON.stringify(data));
                                         wallpaperManager.applyWallpaper('white');
                                     }
@@ -2010,7 +2131,7 @@ async function initPopupWallpaperManagement(popupContent) {
                             newPreview.remove();
                             
                             showMessage('壁纸已删除');
-                        }
+                        });
                     });
                 }
                 
@@ -2046,7 +2167,7 @@ async function initPopupWallpaperManagement(popupContent) {
             e.stopPropagation();
             const wallpaper = this.dataset.wallpaper;
             
-            if (confirm('确定要删除这个壁纸吗？')) {
+            showConfirmDialog('删除壁纸', '确定要删除这个壁纸吗？', async () => {
                 await wallpaperManager.removeUploadedWallpaper(wallpaper);
                 
                 // 如果删除的是当前壁纸，重置为默认壁纸
@@ -2073,7 +2194,7 @@ async function initPopupWallpaperManagement(popupContent) {
                 renderUrlWallpapersList();
                 
                 showMessage('壁纸已删除');
-            }
+            });
         });
     });
 
@@ -2125,7 +2246,7 @@ async function initPopupWallpaperManagement(popupContent) {
                                         e.stopPropagation();
                                         const wallpaper = this.dataset.wallpaper;
                                         
-                                        if (confirm('确定要删除这个壁纸吗？')) {
+                                        showConfirmDialog('删除壁纸', '确定要删除这个壁纸吗？', async () => {
                                             await wallpaperManager.removeUploadedWallpaper(wallpaper);
                                             
                                             // 如果删除的是当前壁纸，重置为默认壁纸
@@ -2152,7 +2273,7 @@ async function initPopupWallpaperManagement(popupContent) {
                                             renderUrlWallpapersList();
                                             
                                             showMessage('壁纸已删除');
-                                        }
+                                        });
                                     });
                                 }
                                 
@@ -2227,7 +2348,7 @@ async function initPopupWallpaperManagement(popupContent) {
                                 e.stopPropagation();
                                 const wallpaper = this.dataset.wallpaper;
                                 
-                                if (confirm('确定要删除这个壁纸吗？')) {
+                                showConfirmDialog('删除壁纸', '确定要删除这个壁纸吗？', async () => {
                                     await wallpaperManager.removeUploadedWallpaper(wallpaper);
                                     
                                     // 如果删除的是当前壁纸，重置为默认壁纸
@@ -2235,8 +2356,8 @@ async function initPopupWallpaperManagement(popupContent) {
                                     if (savedData) {
                                         try {
                                             const data = JSON.parse(savedData);
-                                            if (data.currentWallpaper === wallpaper) {
-                                                data.currentWallpaper = 'white';
+                                            if (data.wallpaper === wallpaper) {
+                                                data.wallpaper = 'white';
                                                 localStorage.setItem('startpage-data', JSON.stringify(data));
                                                 wallpaperManager.applyWallpaper('white');
                                             }
@@ -2252,7 +2373,7 @@ async function initPopupWallpaperManagement(popupContent) {
                                     renderUrlWallpapersList();
                                     
                                     showMessage('壁纸已删除');
-                                }
+                                });
                             });
                         }
                         
@@ -2317,36 +2438,38 @@ async function initPopupWallpaperManagement(popupContent) {
                             showMessage('壁纸已应用');
                         }
                     } else if (action === 'delete') {
-                        // 从列表中删除
-                        await wallpaperManager.removeUploadedWallpaper(url);
-                        
-                        // 从预览列表中删除
-                        const wallpaperPreviews = popupContent.querySelector('.wallpaper-previews');
-                        if (wallpaperPreviews) {
-                            const previewToRemove = Array.from(wallpaperPreviews.children).find(p => p.dataset.wallpaper === url);
-                            if (previewToRemove) {
-                                previewToRemove.remove();
-                            }
-                        }
-                        
-                        // 如果删除的是当前壁纸，重置为默认
-                        if (wallpaperManager.currentWallpaper === url) {
-                            await wallpaperManager.saveWallpaper('white');
-                            wallpaperManager.applyWallpaper('white');
+                        showConfirmDialog('删除壁纸', '确定要删除这个壁纸吗？', async () => {
+                            // 从列表中删除
+                            await wallpaperManager.removeUploadedWallpaper(url);
                             
-                            // 更新预览列表的选中状态
-                            const previews = popupContent.querySelectorAll('.wallpaper-preview');
-                            previews.forEach(p => p.classList.remove('selected'));
-                            const whitePreview = Array.from(previews).find(p => p.dataset.wallpaper === 'white');
-                            if (whitePreview) {
-                                whitePreview.classList.add('selected');
+                            // 从预览列表中删除
+                            const wallpaperPreviews = popupContent.querySelector('.wallpaper-previews');
+                            if (wallpaperPreviews) {
+                                const previewToRemove = Array.from(wallpaperPreviews.children).find(p => p.dataset.wallpaper === url);
+                                if (previewToRemove) {
+                                    previewToRemove.remove();
+                                }
                             }
-                        }
-                        
-                        // 重新渲染URL列表
-                        renderUrlWallpapersList();
-                        
-                        showMessage('URL壁纸已删除');
+                            
+                            // 如果删除的是当前壁纸，重置为默认
+                            if (wallpaperManager.currentWallpaper === url) {
+                                await wallpaperManager.saveWallpaper('white');
+                                wallpaperManager.applyWallpaper('white');
+                                
+                                // 更新预览列表的选中状态
+                                const previews = popupContent.querySelectorAll('.wallpaper-preview');
+                                previews.forEach(p => p.classList.remove('selected'));
+                                const whitePreview = Array.from(previews).find(p => p.dataset.wallpaper === 'white');
+                                if (whitePreview) {
+                                    whitePreview.classList.add('selected');
+                                }
+                            }
+                            
+                            // 重新渲染URL列表
+                            renderUrlWallpapersList();
+                            
+                            showMessage('URL壁纸已删除');
+                        });
                     }
                 });
             });
@@ -2788,9 +2911,9 @@ style.textContent = `
         max-width: 400px;
         box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
         border: 1px solid rgba(255, 255, 255, 0.3);
-        transform: translateY(100px) scale(0.95);
+        transform: translateY(50px) scale(0.98);
         opacity: 0;
-        transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        transition: transform 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94), opacity 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
     }
     
     .modal-show .modal-content {
@@ -2799,7 +2922,7 @@ style.textContent = `
     }
     
     .modal-hide .modal-content {
-        transform: translateY(100px) scale(0.95);
+        transform: translateY(50px) scale(0.98);
         opacity: 0;
     }
     
@@ -2869,7 +2992,7 @@ async function initPopupSettingsManagement(popupContent) {
     // 加载保存的设置
     function loadSettings() {
         try {
-            const savedSettings = localStorage.getItem('startpage-settings');
+            const savedSettings = localStorage.getItem('startpage-faviconapi');
             if (savedSettings) {
                 return JSON.parse(savedSettings);
             }
@@ -2877,14 +3000,14 @@ async function initPopupSettingsManagement(popupContent) {
             console.error('Load settings error:', error);
         }
         return {
-            iconApiUrl: 'https://toolb.cn/favicon/{domain}'
+            iconApiUrl: ''
         };
     }
 
     // 保存设置
     function saveSettings(settings) {
         try {
-            localStorage.setItem('startpage-settings', JSON.stringify(settings));
+            localStorage.setItem('startpage-faviconapi', JSON.stringify(settings));
             return true;
         } catch (error) {
             console.error('Save settings error:', error);
@@ -2904,7 +3027,7 @@ async function initPopupSettingsManagement(popupContent) {
     if (saveSettingsButton) {
         saveSettingsButton.addEventListener('click', () => {
             const newSettings = {
-                iconApiUrl: iconApiUrlInput.value.trim() || 'https://toolb.cn/favicon/{domain}'
+                iconApiUrl: iconApiUrlInput.value.trim()
             };
             if (saveSettings(newSettings)) {
                 showMessage('设置已保存');
