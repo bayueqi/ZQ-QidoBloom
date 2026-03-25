@@ -1,3 +1,17 @@
+// 获取图标 API URL
+function getIconApiUrl() {
+    try {
+        const savedSettings = localStorage.getItem('startpage-settings');
+        if (savedSettings) {
+            const settings = JSON.parse(savedSettings);
+            return settings.iconApiUrl || 'https://toolb.cn/favicon/{domain}';
+        }
+    } catch (error) {
+        console.error('Get icon API URL error:', error);
+    }
+    return 'https://toolb.cn/favicon/{domain}';
+}
+
 // 图标错误处理函数
 function handleIconError(img) {
     img.style.width = '100%';
@@ -96,6 +110,19 @@ async function exportConfig() {
             }
         }
 
+        // 获取图标来源 API 设置
+        const savedSettings = localStorage.getItem('startpage-settings');
+        if (savedSettings) {
+            try {
+                const settings = JSON.parse(savedSettings);
+                if (settings.iconApiUrl) {
+                    config.data.iconApiUrl = settings.iconApiUrl;
+                }
+            } catch (error) {
+                console.error('Failed to parse saved settings:', error);
+            }
+        }
+
         // 创建下载链接
         const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
@@ -164,7 +191,13 @@ function importConfig() {
                 
                 localStorage.setItem('startpage-data', JSON.stringify(data));
 
-
+                // 导入图标来源 API 设置
+                if (config.data.iconApiUrl) {
+                    const settings = {
+                        iconApiUrl: config.data.iconApiUrl
+                    };
+                    localStorage.setItem('startpage-settings', JSON.stringify(settings));
+                }
 
                 alert('配置导入成功！页面将自动刷新。');
                 window.location.reload();
@@ -553,7 +586,7 @@ async function renderShortcuts() {
                                 ${site.icon && (site.icon.startsWith('http') || site.icon.startsWith('data:')) ? `
                                     <img src="${site.icon}" alt="${site.name} icon" class="site-icon" data-site-name="${site.name}" data-hostname="${new URL(site.url).hostname}">
                                 ` : `
-                                    <img src="https://toolb.cn/favicon/${new URL(site.url).hostname}" alt="${site.name} icon" class="site-icon" data-site-name="${site.name}" data-hostname="${new URL(site.url).hostname}">
+                                    <img src="${getIconApiUrl().replace('{domain}', new URL(site.url).hostname)}" alt="${site.name} icon" class="site-icon" data-site-name="${site.name}" data-hostname="${new URL(site.url).hostname}">
                                 `}
                             </div>
                             <span class="shortcut-name">${site.name}</span>
@@ -729,6 +762,9 @@ function handleDropdownAction(action) {
             break;
         case 'import-config':
             importConfig();
+            break;
+        case 'settings':
+            showPopup('settings');
             break;
         default:
             break;
@@ -988,6 +1024,26 @@ function showPopup(type) {
                 </div>
             `;
             break;
+        case 'settings':
+            content = `
+                <div class="popup-header">
+                    <h3>图标来源</h3>
+                    <button class="popup-close">&times;</button>
+                </div>
+                <div class="popup-body">
+                    <div class="settings-management">
+                        <div class="form-group">
+                            <label for="icon-api-url">图标 API URL</label>
+                            <input type="url" id="icon-api-url" class="form-control" placeholder="例如: https://toolb.cn/favicon/{domain}">
+                            <small style="color: #666; font-size: 0.8rem;">使用 {domain} 作为域名的占位符</small>
+                        </div>
+                        <div class="form-group">
+                            <button id="save-settings" class="btn btn-primary">保存设置</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            break;
         default:
             content = `
                 <div class="popup-header">
@@ -1025,6 +1081,9 @@ function showPopup(type) {
     } else if (type === 'search-engines') {
         // 初始化搜索引擎管理功能
         initPopupSearchEnginesManagement(popupContent);
+    } else if (type === 'settings') {
+        // 初始化设置功能
+        initPopupSettingsManagement(popupContent);
     }
     
     // 点击外部关闭
@@ -1283,7 +1342,7 @@ async function initPopupGroupsManagement(popupContent) {
                                     ${site.icon && (site.icon.startsWith('http') || site.icon.startsWith('data:')) ? `
                                         <img src="${site.icon}" alt="${site.name} icon" class="popup-site-icon-img" data-site-name="${site.name}" data-hostname="${new URL(site.url).hostname}">
                                     ` : `
-                                        <img src="https://toolb.cn/favicon/${new URL(site.url).hostname}" alt="${site.name} icon" class="popup-site-icon-img" data-site-name="${site.name}" data-hostname="${new URL(site.url).hostname}">
+                                        <img src="${getIconApiUrl().replace('{domain}', new URL(site.url).hostname)}" alt="${site.name} icon" class="popup-site-icon-img" data-site-name="${site.name}" data-hostname="${new URL(site.url).hostname}">
                                     `}
                                 </div>
                                 <div class="popup-site-details">
@@ -2813,3 +2872,56 @@ style.textContent = `
     }
 `;
 document.head.appendChild(style);
+
+// 初始化设置界面
+async function initPopupSettingsManagement(popupContent) {
+    // 加载保存的设置
+    function loadSettings() {
+        try {
+            const savedSettings = localStorage.getItem('startpage-settings');
+            if (savedSettings) {
+                return JSON.parse(savedSettings);
+            }
+        } catch (error) {
+            console.error('Load settings error:', error);
+        }
+        return {
+            iconApiUrl: 'https://toolb.cn/favicon/{domain}'
+        };
+    }
+
+    // 保存设置
+    function saveSettings(settings) {
+        try {
+            localStorage.setItem('startpage-settings', JSON.stringify(settings));
+            return true;
+        } catch (error) {
+            console.error('Save settings error:', error);
+            return false;
+        }
+    }
+
+    // 加载设置并填充表单
+    const settings = loadSettings();
+    const iconApiUrlInput = popupContent.querySelector('#icon-api-url');
+    if (iconApiUrlInput) {
+        iconApiUrlInput.value = settings.iconApiUrl;
+    }
+
+    // 绑定保存设置按钮
+    const saveSettingsButton = popupContent.querySelector('#save-settings');
+    if (saveSettingsButton) {
+        saveSettingsButton.addEventListener('click', () => {
+            const newSettings = {
+                iconApiUrl: iconApiUrlInput.value.trim() || 'https://toolb.cn/favicon/{domain}'
+            };
+            if (saveSettings(newSettings)) {
+                showMessage('设置已保存');
+                // 重新渲染快捷方式以应用新的图标 API
+                renderShortcuts();
+            } else {
+                showMessage('保存设置失败', 'error');
+            }
+        });
+    }
+}
