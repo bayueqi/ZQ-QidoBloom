@@ -79,7 +79,6 @@ async function exportConfig() {
             data: {
                 groups: [],
                 searchEngines: [],
-                currentWallpaper: null,
                 uploadedWallpapers: []
             }
         };
@@ -97,9 +96,6 @@ async function exportConfig() {
         if (savedData) {
             try {
                 const data = JSON.parse(savedData);
-                if (data.currentWallpaper) {
-                    config.data.currentWallpaper = data.currentWallpaper;
-                }
                 if (data.uploadedWallpapers && Array.isArray(data.uploadedWallpapers)) {
                     config.data.uploadedWallpapers = data.uploadedWallpapers.filter(w => 
                         w.startsWith('http://') || w.startsWith('https://')
@@ -178,11 +174,6 @@ function importConfig() {
                 // 导入壁纸数据
                 const savedData = localStorage.getItem('startpage-data');
                 let data = savedData ? JSON.parse(savedData) : { groups: [] };
-                
-                // 导入当前壁纸
-                if (config.data.currentWallpaper) {
-                    data.currentWallpaper = config.data.currentWallpaper;
-                }
                 
                 // 导入URL壁纸列表
                 if (config.data.uploadedWallpapers && Array.isArray(config.data.uploadedWallpapers)) {
