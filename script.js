@@ -1957,9 +1957,21 @@ async function initPopupSearchEnginesManagement(popupContent) {
             btn.addEventListener('click', async () => {
                 const engineId = btn.dataset.id;
                 showConfirmDialog('删除搜索引擎', '确定要删除这个搜索引擎吗？', async () => {
+                    const currentEngineElement = document.getElementById('current-engine');
+                    const currentEngineName = currentEngineElement ? currentEngineElement.textContent : '';
+                    const engineToDelete = engines.find(e => e.id === engineId);
+                    
                     await enginesManager.deleteEngine(engineId);
                     renderEngines();
                     showMessage('搜索引擎已删除');
+                    
+                    if (engineToDelete && engineToDelete.name === currentEngineName) {
+                        const currentEngineElement = document.getElementById('current-engine');
+                        if (currentEngineElement) {
+                            currentEngineElement.textContent = '必应';
+                        }
+                    }
+                    
                     initNewSearch();
                 });
             });
