@@ -7,7 +7,7 @@
 
 /* 基础样式 */
 body {
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     background: #ffffff;
     color: #333333;
     min-height: 100vh;
@@ -80,7 +80,7 @@ body {
     color: #000000;
     font-size: 0.9rem;
     font-weight: 500;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     line-height: 1.2;
     min-width: 120px;
     max-width: 200px;
