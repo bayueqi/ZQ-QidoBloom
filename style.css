@@ -14,6 +14,341 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
+    transition: all 0.3s ease;
+}
+
+/* 暗黑模式 */
+body.dark-mode {
+    background: #121212;
+    color: #e0e0e0;
+}
+
+body.dark-mode .container {
+    color: #e0e0e0;
+}
+
+body.dark-mode .action-button {
+    background: rgba(255, 255, 255, 0.1);
+    color: #e0e0e0;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+body.dark-mode .action-button svg {
+    stroke: rgba(255, 255, 255, 0.8);
+}
+
+body.dark-mode .action-button:hover svg {
+    stroke: #ffffff;
+}
+
+body.dark-mode .manage-dropdown-menu,
+body.dark-mode .theme-dropdown-menu {
+    background: rgba(30, 30, 30, 0.9);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: #e0e0e0;
+}
+
+body.dark-mode .dropdown-item {
+    color: rgba(255, 255, 255, 0.8);
+}
+
+body.dark-mode .dropdown-item:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: #ffffff;
+}
+
+body.dark-mode .shortcut-group {
+    background: rgba(40, 40, 40, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+body.dark-mode .group-title {
+    color: rgba(255, 255, 255, 0.8);
+}
+
+body.dark-mode .shortcut-item {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    color: #e0e0e0;
+}
+
+body.dark-mode .shortcut-name {
+    color: rgba(255, 255, 255, 0.9);
+}
+
+body.dark-mode .time {
+    background: linear-gradient(45deg, #667eea 0%, #764ba2 100%);
+}
+
+body.dark-mode .date {
+    color: #e0e0e0;
+    text-shadow: 0 0 8px rgba(0, 0, 0, 0.8), 0 0 16px rgba(0, 0, 0, 0.6);
+}
+
+body.dark-mode .new-search-form {
+    background: rgba(40, 40, 40, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+body.dark-mode .new-search-form:focus-within {
+    background: rgba(40, 40, 40, 0.7);
+    border-color: rgba(102, 126, 234, 0.3);
+}
+
+body.dark-mode .selected-engine {
+    background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
+    color: rgba(255, 255, 255, 0.9);
+    border-right: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+body.dark-mode .selected-engine:hover {
+    background: linear-gradient(135deg, rgba(102, 126, 234, 0.15) 0%, rgba(118, 75, 162, 0.15) 100%);
+}
+
+body.dark-mode .selected-engine svg {
+    stroke: rgba(255, 255, 255, 0.7);
+}
+
+body.dark-mode .selected-engine:hover svg {
+    stroke: rgba(255, 255, 255, 0.9);
+}
+
+body.dark-mode .engine-dropdown {
+    background: rgba(30, 30, 30, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+body.dark-mode .engine-option {
+    color: rgba(255, 255, 255, 0.9);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+body.dark-mode .engine-option:hover {
+    background: linear-gradient(135deg, rgba(102, 126, 234, 0.15) 0%, rgba(118, 75, 162, 0.12) 100%);
+    color: #a78bfa;
+}
+
+body.dark-mode .new-search-input {
+    color: rgba(255, 255, 255, 0.9);
+}
+
+body.dark-mode .new-search-input::placeholder {
+    color: rgba(255, 255, 255, 0.6);
+}
+
+body.dark-mode .new-search-input:focus {
+    color: #ffffff;
+}
+
+body.dark-mode .new-search-button {
+    background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
+    color: rgba(255, 255, 255, 0.9);
+}
+
+body.dark-mode .new-search-button:hover {
+    background: linear-gradient(135deg, rgba(102, 126, 234, 0.15) 0%, rgba(118, 75, 162, 0.15) 100%);
+}
+
+body.dark-mode .popup-content {
+    background: rgba(30, 30, 30, 0.8);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: #e0e0e0;
+}
+
+body.dark-mode .popup-header h3 {
+    color: #ffffff;
+}
+
+body.dark-mode .popup-close {
+    color: rgba(255, 255, 255, 0.5);
+}
+
+body.dark-mode .popup-close:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: #ffffff;
+}
+
+body.dark-mode .form-group label {
+    color: #e0e0e0;
+}
+
+body.dark-mode .form-control {
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    background: rgba(40, 40, 40, 0.6);
+    color: #e0e0e0;
+}
+
+body.dark-mode .form-control:focus {
+    border-color: rgba(102, 126, 234, 0.3);
+    background: rgba(40, 40, 40, 0.9);
+    box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.15);
+}
+
+body.dark-mode .btn-primary {
+    background: rgba(255, 255, 255, 0.9);
+    color: #121212;
+}
+
+body.dark-mode .btn-primary:hover {
+    background: rgba(255, 255, 255, 0.75);
+}
+
+body.dark-mode .btn-secondary {
+    background: rgba(40, 40, 40, 0.6);
+    color: #e0e0e0;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+body.dark-mode .btn-secondary:hover {
+    background: rgba(40, 40, 40, 0.8);
+}
+
+body.dark-mode .btn-danger {
+    background: rgba(220, 38, 38, 0.9);
+    color: #ffffff;
+}
+
+body.dark-mode .btn-danger:hover {
+    background: rgba(220, 38, 38, 0.75);
+}
+
+body.dark-mode .github-link {
+    background: rgba(40, 40, 40, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+body.dark-mode .github-link:hover {
+    background: rgba(40, 40, 40, 0.15);
+}
+
+body.dark-mode .github-link svg {
+    stroke: rgba(255, 255, 255, 0.8);
+}
+
+body.dark-mode .message {
+    background: rgba(40, 40, 40, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.8);
+}
+
+body.dark-mode .message.error {
+    color: rgba(255, 100, 100, 0.8);
+}
+
+body.dark-mode .modal-content {
+    background: rgba(30, 30, 30, 0.85);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+body.dark-mode .modal-content h3 {
+    color: #ffffff;
+}
+
+body.dark-mode .modal-content p {
+    color: #e0e0e0;
+}
+
+body.dark-mode #dialog-cancel {
+    background: rgba(40, 40, 40, 0.8);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #e0e0e0;
+}
+
+body.dark-mode #dialog-confirm {
+    background: rgba(255, 255, 255, 0.8);
+    color: #121212;
+}
+
+body.dark-mode .empty-state {
+    color: rgba(255, 255, 255, 0.5);
+}
+
+body.dark-mode .empty-state h3 {
+    color: rgba(255, 255, 255, 0.7);
+}
+
+/* 暗黑模式下的图标加载状态 */
+body.dark-mode .shortcut-icon {
+    background: linear-gradient(45deg, #333333, #444444);
+}
+
+body.dark-mode .shortcut-icon.loading {
+    background: linear-gradient(45deg, #333333, #444444);
+    animation: pulse 1.5s infinite;
+}
+
+/* 平滑滚动 */
+html {
+    scroll-behavior: smooth;
+}
+
+/* 通用动画类 */
+.fade-in {
+    animation: fadeIn 0.5s ease-in-out;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.slide-in {
+    animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+    from {
+        transform: translateX(-20px);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+.pulse {
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0% {
+        transform: scale(1);
+    }
+    50% {
+        transform: scale(1.05);
+    }
+    100% {
+        transform: scale(1);
+    }
+}
+
+.bounce {
+    animation: bounce 0.6s ease-out;
+}
+
+@keyframes bounce {
+    0%, 20%, 53%, 80%, 100% {
+        animation-timing-function: cubic-bezier(0.215, 0.610, 0.355, 1.000);
+        transform: translate3d(0,0,0);
+    }
+    40%, 43% {
+        animation-timing-function: cubic-bezier(0.755, 0.050, 0.855, 0.060);
+        transform: translate3d(0, -8px, 0);
+    }
+    70% {
+        animation-timing-function: cubic-bezier(0.755, 0.050, 0.855, 0.060);
+        transform: translate3d(0, -4px, 0);
+    }
+    90% {
+        transform: translate3d(0,-2px,0);
+    }
 }
 
 .container {
@@ -85,11 +420,28 @@ body {
     min-width: 120px;
     max-width: 200px;
     justify-content: center;
-    transition: all 0.3s ease;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
     cursor: pointer;
     border: none;
     outline: none;
+    position: relative;
+    overflow: hidden;
+}
+
+.action-button::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+    transition: left 0.5s;
+}
+
+.action-button:hover::before {
+    left: 100%;
 }
 
 .action-button span {
@@ -98,22 +450,30 @@ body {
     text-overflow: ellipsis;
     flex: 1;
     text-align: center;
+    transition: all 0.3s ease;
 }
 
 .action-button:hover {
     background: rgba(255, 255, 255, 0.15);
     border-color: rgba(255, 255, 255, 0.3);
-    box-shadow: 0 6px 25px rgba(0, 0, 0, 0.15);
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.2);
+    transform: translateY(-2px);
 }
 
-
+.action-button:active {
+    transform: translateY(0) scale(0.96);
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+}
 
 .action-button svg {
     stroke: rgba(0, 0, 0, 0.8);
+    transition: all 0.3s ease;
+    transform: scale(1);
 }
 
 .action-button:hover svg {
     stroke: #000000;
+    transform: scale(1.1);
 }
 
 /* 用户按钮容器 */
@@ -182,6 +542,33 @@ body {
 }
 
 .manage-dropdown-menu.show {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+}
+
+/* 主题下拉菜单 */
+.theme-dropdown-menu {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    transform: translateY(0);
+    margin-top: 12px;
+    background: rgba(255, 255, 255, 0.8);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 12px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    min-width: 180px;
+    z-index: 999;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-10px);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.theme-dropdown-menu.show {
     opacity: 1;
     visibility: visible;
     transform: translateY(0);
@@ -636,6 +1023,153 @@ body.clicked-outside .manage-dropdown-menu {
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 1px 4px rgba(102, 126, 234, 0.15);
 }
 
+/* 搜索建议容器 */
+.search-suggestions {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    margin-top: 8px;
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 12px;
+    box-shadow: 0 10px 35px rgba(0, 0, 0, 0.2);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    z-index: 1000;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-10px);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.search-suggestions.show {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+}
+
+/* 搜索建议分组 */
+.search-suggestion-group {
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.search-suggestion-group:last-child {
+    border-bottom: none;
+}
+
+.search-suggestion-group-header {
+    padding: 6px 20px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: rgba(0, 0, 0, 0.6);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* 搜索建议项 */
+.search-suggestion-item {
+    display: flex;
+    align-items: center;
+    padding: 10px 20px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border-radius: 8px;
+    margin: 0 8px;
+}
+
+.search-suggestion-item:hover {
+    background: rgba(0, 0, 0, 0.05);
+    transform: translateX(4px);
+}
+
+.search-suggestion-item .icon {
+    margin-right: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    color: rgba(0, 0, 0, 0.6);
+}
+
+.search-suggestion-item .text {
+    flex: 1;
+    font-size: 0.9rem;
+    color: rgba(0, 0, 0, 0.9);
+}
+
+.search-suggestion-item .frequency {
+    font-size: 0.8rem;
+    color: rgba(0, 0, 0, 0.4);
+    margin-left: 10px;
+}
+
+/* 暗黑模式下的搜索建议样式 */
+body.dark-mode .search-suggestions {
+    background: rgba(30, 30, 30, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+body.dark-mode .search-suggestion-group {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+body.dark-mode .search-suggestion-group-header {
+    color: rgba(255, 255, 255, 0.6);
+}
+
+body.dark-mode .search-suggestion-item:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+body.dark-mode .search-suggestion-item .icon {
+    color: rgba(255, 255, 255, 0.6);
+}
+
+body.dark-mode .search-suggestion-item .text {
+    color: rgba(255, 255, 255, 0.9);
+}
+
+body.dark-mode .search-suggestion-item .frequency {
+    color: rgba(255, 255, 255, 0.4);
+}
+
+/* 搜索建议滚动条样式 */
+.search-suggestions::-webkit-scrollbar {
+    width: 6px;
+}
+
+.search-suggestions::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.05);
+    border-radius: 10px;
+    margin: 10px 0;
+}
+
+.search-suggestions::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 10px;
+}
+
+.search-suggestions::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 0, 0, 0.3);
+}
+
+body.dark-mode .search-suggestions::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+body.dark-mode .search-suggestions::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+body.dark-mode .search-suggestions::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.3);
+}
+
 /* 快捷方式样式 */
 .shortcuts {
     display: grid;
@@ -650,14 +1184,37 @@ body.clicked-outside .manage-dropdown-menu {
     padding: 20px;
     backdrop-filter: blur(10px);
     border: 1px solid rgba(200, 200, 200, 0.2);
-    transition: all 0.3s ease;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     cursor: grab;
+    position: relative;
+    overflow: hidden;
+}
+
+.shortcut-group::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+    transition: left 0.6s;
+}
+
+.shortcut-group:hover::before {
+    left: 100%;
 }
 
 .shortcut-group:hover {
     background: rgba(200, 200, 200, 0.2);
-    transform: translateY(-5px);
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+    transform: translateY(-5px) scale(1.02);
+    box-shadow: 0 12px 35px rgba(0, 0, 0, 0.25);
+    border-color: rgba(200, 200, 200, 0.4);
+}
+
+.shortcut-group:active {
+    cursor: grabbing;
+    transform: translateY(-2px) scale(0.98);
 }
 
 /* 拖拽相关样式 */
@@ -674,12 +1231,162 @@ body.clicked-outside .manage-dropdown-menu {
     transform: translateY(-5px);
 }
 
+.group-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+}
+
 .group-title {
     font-size: 1rem;
     font-weight: 600;
-    margin-bottom: 15px;
     color: rgba(100, 100, 100, 0.8);
     text-align: left;
+}
+
+.group-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.group-action-btn {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 6px;
+    border-radius: 6px;
+    transition: all 0.2s ease;
+    color: rgba(100, 100, 100, 0.6);
+}
+
+.group-action-btn:hover {
+    background: rgba(0, 0, 0, 0.05);
+    color: rgba(100, 100, 100, 0.9);
+    transform: scale(1.1);
+}
+
+/* 快捷方式包装器 */
+.shortcut-item-wrapper {
+    position: relative;
+    border-radius: 10px;
+    overflow: hidden;
+    transition: all 0.3s ease;
+}
+
+.shortcut-item-wrapper:hover {
+    transform: translateY(-5px) scale(1.05);
+}
+
+.shortcut-item-wrapper:hover .shortcut-actions {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+/* 快捷操作按钮 */
+.shortcut-actions {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    display: flex;
+    gap: 4px;
+    opacity: 0;
+    transform: translateY(-10px);
+    transition: all 0.3s ease;
+    background: rgba(0, 0, 0, 0.7);
+    border-radius: 6px;
+    padding: 4px;
+    backdrop-filter: blur(10px);
+}
+
+.shortcut-action-btn {
+    background: rgba(255, 255, 255, 0.9);
+    border: none;
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    transition: all 0.2s ease;
+    color: #333;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.shortcut-action-btn:hover {
+    background: #ffffff;
+    transform: scale(1.1);
+}
+
+/* 添加网站按钮 */
+.add-site-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 15px;
+    border: 2px dashed rgba(100, 100, 100, 0.3);
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    color: rgba(100, 100, 100, 0.6);
+}
+
+.add-site-btn:hover {
+    border-color: rgba(102, 126, 234, 0.5);
+    background: rgba(102, 126, 234, 0.05);
+    color: rgba(102, 126, 234, 0.8);
+    transform: translateY(-3px);
+}
+
+.add-site-btn svg {
+    margin-bottom: 8px;
+    transition: all 0.3s ease;
+}
+
+.add-site-btn:hover svg {
+    transform: scale(1.1);
+}
+
+.add-site-btn span {
+    font-size: 0.8rem;
+}
+
+/* 暗黑模式下的样式 */
+body.dark-mode .group-title {
+    color: rgba(200, 200, 200, 0.8);
+}
+
+body.dark-mode .group-action-btn {
+    color: rgba(200, 200, 200, 0.6);
+}
+
+body.dark-mode .group-action-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: rgba(200, 200, 200, 0.9);
+}
+
+body.dark-mode .shortcut-actions {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+body.dark-mode .shortcut-action-btn {
+    background: rgba(255, 255, 255, 0.2);
+    color: #e0e0e0;
+}
+
+body.dark-mode .shortcut-action-btn:hover {
+    background: rgba(255, 255, 255, 0.3);
+}
+
+body.dark-mode .add-site-btn {
+    border-color: rgba(200, 200, 200, 0.3);
+    color: rgba(200, 200, 200, 0.6);
+}
+
+body.dark-mode .add-site-btn:hover {
+    border-color: rgba(102, 126, 234, 0.5);
+    background: rgba(102, 126, 234, 0.1);
+    color: rgba(102, 126, 234, 0.8);
 }
 
 .shortcut-items {
@@ -696,15 +1403,39 @@ body.clicked-outside .manage-dropdown-menu {
     color: #ffffff;
     padding: 15px;
     border-radius: 10px;
-    transition: all 0.3s ease;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     background: rgba(255, 255, 255, 0.05);
     cursor: pointer;
+    position: relative;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.shortcut-item::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.15), transparent);
+    transition: left 0.5s;
+}
+
+.shortcut-item:hover::before {
+    left: 100%;
 }
 
 .shortcut-item:hover {
     background: rgba(255, 255, 255, 0.1);
-    transform: translateY(-3px);
-    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+    transform: translateY(-5px) scale(1.05);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
+    border-color: rgba(255, 255, 255, 0.3);
+}
+
+.shortcut-item:active {
+    transform: translateY(-2px) scale(0.98);
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
 }
 
 .shortcut-item.dragging {

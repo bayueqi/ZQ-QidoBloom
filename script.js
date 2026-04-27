@@ -226,6 +226,11 @@ class PopupWallpaperManager {
     constructor() {
         this.currentWallpaper = 'white';
         this.uploadedWallpapers = [];
+        this.wallpaperSettings = {
+            blur: 0,
+            fit: 'cover', // cover, contain, stretch
+            position: 'center'
+        };
     }
 
     // 加载当前壁纸
@@ -235,6 +240,7 @@ class PopupWallpaperManager {
             if (savedData) {
                 const data = JSON.parse(savedData);
                 this.currentWallpaper = data.wallpaper || 'white';
+                this.wallpaperSettings = { ...this.wallpaperSettings, ...data.wallpaperSettings };
             }
         } catch (error) {
             console.error('Load wallpaper error:', error);
@@ -262,12 +268,29 @@ class PopupWallpaperManager {
             const savedData = localStorage.getItem('startpage-data');
             let data = savedData ? JSON.parse(savedData) : { groups: [] };
             data.wallpaper = wallpaper;
+            data.wallpaperSettings = this.wallpaperSettings;
             this.currentWallpaper = wallpaper;
             localStorage.setItem('startpage-data', JSON.stringify(data));
 
             return true;
         } catch (error) {
             console.error('Save wallpaper error:', error);
+            return false;
+        }
+    }
+
+    // 保存壁纸配置
+    async saveWallpaperSettings(settings) {
+        try {
+            this.wallpaperSettings = { ...this.wallpaperSettings, ...settings };
+            const savedData = localStorage.getItem('startpage-data');
+            let data = savedData ? JSON.parse(savedData) : { groups: [] };
+            data.wallpaperSettings = this.wallpaperSettings;
+            localStorage.setItem('startpage-data', JSON.stringify(data));
+            this.applyWallpaper(this.currentWallpaper);
+            return true;
+        } catch (error) {
+            console.error('Save wallpaper settings error:', error);
             return false;
         }
     }
@@ -308,18 +331,12 @@ class PopupWallpaperManager {
         
         if (wallpaper === 'white') {
             body.style.background = 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)';
-        } else if (wallpaper.startsWith('img/')) {
-            // 处理本地图片
-            body.style.background = `url('${wallpaper}') no-repeat center center fixed`;
-            body.style.backgroundSize = 'cover';
-        } else if (wallpaper.startsWith('data:')) {
-            // 处理base64图片
-            body.style.background = `url('${wallpaper}') no-repeat center center fixed`;
-            body.style.backgroundSize = 'cover';
-        } else if (wallpaper.startsWith('http')) {
-            // 处理URL图片
-            body.style.background = `url('${wallpaper}') no-repeat center center fixed`;
-            body.style.backgroundSize = 'cover';
+            body.style.filter = 'none';
+        } else if (wallpaper.startsWith('img/') || wallpaper.startsWith('data:') || wallpaper.startsWith('http')) {
+            // 处理图片
+            body.style.background = `url('${wallpaper}') no-repeat ${this.wallpaperSettings.position} center fixed`;
+            body.style.backgroundSize = this.wallpaperSettings.fit;
+            body.style.filter = `blur(${this.wallpaperSettings.blur}px)`;
         }
     }
 
@@ -333,6 +350,95 @@ class PopupWallpaperManager {
             };
             reader.onerror = function() {
                 resolve(null);
+            };
+            reader.readAsDataURL(file);
+        });
+    }
+
+    // 压缩图片
+    async compressImage(file, maxWidth = 1920, maxHeight = 1080, quality = 0.8) {
+        return new Promise((resolve) => {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            const img = new Image();
+
+            img.onload = function() {
+                // 计算压缩后的尺寸
+                let width = img.width;
+                let height = img.height;
+
+                if (width > maxWidth) {
+                    height = (height * maxWidth) / width;
+                    width = maxWidth;
+                }
+
+                if (height > maxHeight) {
+                    width = (width * maxHeight) / height;
+                    height = maxHeight;
+                }
+
+                canvas.width = width;
+                canvas.height = height;
+
+                // 绘制压缩后的图片
+                ctx.drawImage(img, 0, 0, width, height);
+
+                // 转换为base64
+                const compressedImage = canvas.toDataURL('image/jpeg', quality);
+                resolve(compressedImage);
+            };
+
+            img.onerror = function() {
+                resolve(null);
+            };
+
+            // 读取文件
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        });
+    }
+
+    // 裁剪图片
+    async cropImage(file, cropData) {
+        return new Promise((resolve) => {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            const img = new Image();
+
+            img.onload = function() {
+                // 设置画布尺寸
+                canvas.width = cropData.width;
+                canvas.height = cropData.height;
+
+                // 绘制裁剪后的图片
+                ctx.drawImage(
+                    img,
+                    cropData.x,
+                    cropData.y,
+                    cropData.width,
+                    cropData.height,
+                    0,
+                    0,
+                    cropData.width,
+                    cropData.height
+                );
+
+                // 转换为base64
+                const croppedImage = canvas.toDataURL('image/jpeg');
+                resolve(croppedImage);
+            };
+
+            img.onerror = function() {
+                resolve(null);
+            };
+
+            // 读取文件
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                img.src = e.target.result;
             };
             reader.readAsDataURL(file);
         });
@@ -353,18 +459,62 @@ function getIconApiUrl() {
     return 'https://toolb.cn/favicon/{domain}';
 }
 
+// 生成随机颜色
+function getRandomColor(siteName) {
+    // 基于网站名称生成固定的颜色
+    let hash = 0;
+    for (let i = 0; i < siteName.length; i++) {
+        hash = siteName.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    const c = (hash & 0x00FFFFFF)
+        .toString(16)
+        .toUpperCase();
+    return '#' + '00000'.substring(0, 6 - c.length) + c;
+}
+
 // 图标错误处理函数
 function handleIconError(img) {
     img.style.width = '100%';
     img.style.height = '100%';
     img.style.objectFit = 'contain';
+    img.style.opacity = '0';
+    img.style.transition = 'opacity 0.3s ease';
+    
+    // 显示加载状态
+    const parent = img.parentElement;
+    if (parent) {
+        parent.style.background = 'linear-gradient(45deg, #f0f0f0, #e0e0e0)';
+        parent.style.animation = 'pulse 1.5s infinite';
+    }
+    
+    // 图片加载成功
+    img.addEventListener('load', function() {
+        const parent = this.parentElement;
+        if (parent) {
+            parent.style.background = 'none';
+            parent.style.animation = 'none';
+        }
+        this.style.opacity = '1';
+    });
+    
+    // 图片加载失败
     img.addEventListener('error', function() {
         this.onerror = null;
         const parent = this.parentElement;
         const siteName = this.dataset.siteName;
         this.remove();
         if (parent && siteName) {
-            parent.innerHTML = siteName.charAt(0).toUpperCase();
+            const initial = siteName.charAt(0).toUpperCase();
+            const color = getRandomColor(siteName);
+            parent.style.background = color;
+            parent.style.animation = 'none';
+            parent.style.display = 'flex';
+            parent.style.alignItems = 'center';
+            parent.style.justifyContent = 'center';
+            parent.style.color = '#ffffff';
+            parent.style.fontWeight = '600';
+            parent.style.fontSize = '0.9rem';
+            parent.innerHTML = initial;
         }
     });
 }
@@ -792,28 +942,19 @@ async function initNewSearch() {
 
 // 添加快捷方式悬停效果和拖拽功能
 function initShortcuts() {
-    const shortcutItems = document.querySelectorAll('.shortcut-item');
+    const shortcutWrappers = document.querySelectorAll('.shortcut-item-wrapper');
     
-    shortcutItems.forEach(item => {
-        // 添加悬停效果
-        item.addEventListener('mouseenter', function() {
-            this.style.transform = 'translateY(-5px)';
-        });
-        
-        item.addEventListener('mouseleave', function() {
-            this.style.transform = 'translateY(0)';
-        });
-        
+    shortcutWrappers.forEach(wrapper => {
         // 设置可拖拽
-        item.setAttribute('draggable', 'true');
+        wrapper.setAttribute('draggable', 'true');
     });
     
     // 添加网站拖拽功能
     let draggedItem = null;
     
-    shortcutItems.forEach(item => {
+    shortcutWrappers.forEach(wrapper => {
         // 拖拽开始事件
-        item.addEventListener('dragstart', function(e) {
+        wrapper.addEventListener('dragstart', function(e) {
             e.stopPropagation();
             draggedItem = this;
             this.classList.add('dragging');
@@ -822,7 +963,7 @@ function initShortcuts() {
         });
         
         // 拖拽经过事件
-        item.addEventListener('dragover', function(e) {
+        wrapper.addEventListener('dragover', function(e) {
             e.stopPropagation();
             e.preventDefault();
             if (draggedItem) {
@@ -837,7 +978,7 @@ function initShortcuts() {
         });
         
         // 拖拽进入事件
-        item.addEventListener('dragenter', function(e) {
+        wrapper.addEventListener('dragenter', function(e) {
             e.stopPropagation();
             e.preventDefault();
             if (draggedItem && this !== draggedItem) {
@@ -850,13 +991,13 @@ function initShortcuts() {
         });
         
         // 拖拽离开事件
-        item.addEventListener('dragleave', function(e) {
+        wrapper.addEventListener('dragleave', function(e) {
             e.stopPropagation();
             this.classList.remove('drag-over');
         });
         
         // 放置事件
-        item.addEventListener('drop', async function(e) {
+        wrapper.addEventListener('drop', async function(e) {
             e.stopPropagation();
             e.preventDefault();
             this.classList.remove('drag-over');
@@ -885,10 +1026,10 @@ function initShortcuts() {
         });
         
         // 拖拽结束事件
-        item.addEventListener('dragend', function(e) {
+        wrapper.addEventListener('dragend', function(e) {
             e.stopPropagation();
             this.classList.remove('dragging');
-            shortcutItems.forEach(i => i.classList.remove('drag-over'));
+            shortcutWrappers.forEach(i => i.classList.remove('drag-over'));
             draggedItem = null;
         });
     });
@@ -898,7 +1039,7 @@ function initShortcuts() {
         try {
             const group = container.closest('.shortcut-group');
             const groupId = group.dataset.groupId;
-            const siteItems = container.querySelectorAll('.shortcut-item');
+            const siteItems = container.querySelectorAll('.shortcut-item-wrapper');
             const siteIds = Array.from(siteItems).map(item => {
                 return item.dataset.siteId || '';
             }).filter(Boolean);
@@ -1055,30 +1196,242 @@ async function renderShortcuts() {
 
         shortcutsContainer.innerHTML = groups.map(group => `
             <div class="shortcut-group" draggable="true" data-group-id="${group.id}">
-                <h3 class="group-title">${group.name}</h3>
+                <div class="group-header">
+                    <h3 class="group-title">${group.name}</h3>
+                    <div class="group-actions">
+                        <button class="group-action-btn edit-group-btn" data-group-id="${group.id}">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                            </svg>
+                        </button>
+                        <button class="group-action-btn delete-group-btn" data-group-id="${group.id}">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="3 6 5 6 21 6"></polyline>
+                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                <line x1="10" y1="11" x2="10" y2="17"></line>
+                                <line x1="14" y1="11" x2="14" y2="17"></line>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
                 <div class="shortcut-items">
                     ${group.sites.map(site => `
-                        <a href="${site.url}" class="shortcut-item" target="_blank" data-site-id="${site.id}">
-                            <div class="shortcut-icon">
-                                ${site.icon && (site.icon.startsWith('http') || site.icon.startsWith('data:')) ? `
-                                    <img src="${site.icon}" alt="${site.name} icon" class="site-icon" data-site-name="${site.name}" data-hostname="${new URL(site.url).hostname}">
-                                ` : `
-                                    <img src="${getIconApiUrl().replace('{domain}', new URL(site.url).hostname)}" alt="${site.name} icon" class="site-icon" data-site-name="${site.name}" data-hostname="${new URL(site.url).hostname}">
-                                `}
+                        <div class="shortcut-item-wrapper" draggable="true" data-site-id="${site.id}" data-group-id="${group.id}">
+                            <a href="${site.url}" class="shortcut-item" target="_blank">
+                                <div class="shortcut-icon">
+                                    ${site.icon && (site.icon.startsWith('http') || site.icon.startsWith('data:')) ? `
+                                        <img src="${site.icon}" alt="${site.name} icon" class="site-icon" data-site-name="${site.name}" data-hostname="${new URL(site.url).hostname}">
+                                    ` : `
+                                        <img src="${getIconApiUrl().replace('{domain}', new URL(site.url).hostname)}" alt="${site.name} icon" class="site-icon" data-site-name="${site.name}" data-hostname="${new URL(site.url).hostname}">
+                                    `}
+                                </div>
+                                <span class="shortcut-name">${site.name}</span>
+                            </a>
+                            <div class="shortcut-actions">
+                                <button class="shortcut-action-btn edit-site-btn" data-site-id="${site.id}" data-group-id="${group.id}">
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                                    </svg>
+                                </button>
+                                <button class="shortcut-action-btn hide-site-btn" data-site-id="${site.id}" data-group-id="${group.id}">
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"></path>
+                                        <path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"></path>
+                                        <path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"></path>
+                                        <line x1="2" y1="2" x2="22" y2="22"></line>
+                                    </svg>
+                                </button>
+                                <button class="shortcut-action-btn delete-site-btn" data-site-id="${site.id}" data-group-id="${group.id}">
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <polyline points="3 6 5 6 21 6"></polyline>
+                                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                    </svg>
+                                </button>
                             </div>
-                            <span class="shortcut-name">${site.name}</span>
-                        </a>
+                        </div>
                     `).join('')}
+                    <div class="add-site-btn" data-group-id="${group.id}">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="12" y1="5" x2="12" y2="19"></line>
+                            <line x1="5" y1="12" x2="19" y2="12"></line>
+                        </svg>
+                        <span>添加网站</span>
+                    </div>
                 </div>
             </div>
         `).join('');
         
         document.querySelectorAll('.site-icon').forEach(handleIconError);
 
-        // 重新初始化快捷方式事件
+        // 初始化快捷方式事件
         initShortcuts();
+        
+        // 初始化快捷操作按钮事件
+        initShortcutActions();
     } catch (error) {
         console.error('Render shortcuts error:', error);
+    }
+}
+
+// 初始化快捷操作按钮事件
+function initShortcutActions() {
+    // 添加网站按钮
+    document.querySelectorAll('.add-site-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const groupId = this.dataset.groupId;
+            showAddSiteModal(groupId);
+        });
+    });
+    
+    // 编辑网站按钮
+    document.querySelectorAll('.edit-site-btn').forEach(btn => {
+        btn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            const siteId = this.dataset.siteId;
+            const groupId = this.dataset.groupId;
+            showEditSiteModal(groupId, siteId);
+        });
+    });
+    
+    // 隐藏网站按钮
+    document.querySelectorAll('.hide-site-btn').forEach(btn => {
+        btn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            const siteId = this.dataset.siteId;
+            const groupId = this.dataset.groupId;
+            toggleSiteVisibility(groupId, siteId);
+        });
+    });
+    
+    // 删除网站按钮
+    document.querySelectorAll('.delete-site-btn').forEach(btn => {
+        btn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            const siteId = this.dataset.siteId;
+            const groupId = this.dataset.groupId;
+            showConfirmDialog('删除网站', '确定要删除这个网站吗？', async () => {
+                await deleteSite(groupId, siteId);
+                await renderShortcuts();
+            });
+        });
+    });
+    
+    // 编辑分组按钮
+    document.querySelectorAll('.edit-group-btn').forEach(btn => {
+        btn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            const groupId = this.dataset.groupId;
+            showEditGroupModal(groupId);
+        });
+    });
+    
+    // 删除分组按钮
+    document.querySelectorAll('.delete-group-btn').forEach(btn => {
+        btn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            const groupId = this.dataset.groupId;
+            showConfirmDialog('删除分组', '确定要删除这个分组吗？分组内的所有网站也会被删除。', async () => {
+                await deleteGroup(groupId);
+                await renderShortcuts();
+            });
+        });
+    });
+}
+
+// 显示添加网站模态框
+function showAddSiteModal(groupId) {
+    // 这里可以复用现有的添加网站模态框
+    const modal = document.getElementById('popup-add-site-modal');
+    if (modal) {
+        document.getElementById('popup-current-group-id').value = groupId;
+        document.getElementById('popup-site-name').value = '';
+        document.getElementById('popup-site-url').value = '';
+        document.getElementById('popup-site-icon').value = '';
+        modal.style.display = 'block';
+    }
+}
+
+// 显示编辑网站模态框
+function showEditSiteModal(groupId, siteId) {
+    // 这里可以复用现有的编辑网站模态框
+    const modal = document.getElementById('popup-edit-site-modal');
+    if (modal) {
+        // 加载网站数据并填充表单
+        loadSiteData(groupId, siteId).then(site => {
+            if (site) {
+                document.getElementById('popup-edit-group-id').value = groupId;
+                document.getElementById('popup-edit-site-id').value = siteId;
+                document.getElementById('popup-edit-site-name').value = site.name;
+                document.getElementById('popup-edit-site-url').value = site.url;
+                document.getElementById('popup-edit-site-icon').value = site.icon || '';
+                modal.style.display = 'block';
+            }
+        });
+    }
+}
+
+// 显示编辑分组模态框
+function showEditGroupModal(groupId) {
+    // 这里可以复用现有的编辑分组模态框
+    const modal = document.getElementById('popup-edit-group-modal');
+    if (modal) {
+        // 加载分组数据并填充表单
+        loadGroupData(groupId).then(group => {
+            if (group) {
+                document.getElementById('popup-edit-group-id').value = groupId;
+                document.getElementById('popup-edit-group-name').value = group.name;
+                modal.style.display = 'block';
+            }
+        });
+    }
+}
+
+// 加载网站数据
+async function loadSiteData(groupId, siteId) {
+    const data = await loadShortcutsData();
+    const group = data.groups.find(g => g.id === groupId);
+    if (group) {
+        return group.sites.find(site => site.id === siteId);
+    }
+    return null;
+}
+
+// 加载分组数据
+async function loadGroupData(groupId) {
+    const data = await loadShortcutsData();
+    return data.groups.find(g => g.id === groupId);
+}
+
+// 删除网站
+async function deleteSite(groupId, siteId) {
+    const data = await loadShortcutsData();
+    const group = data.groups.find(g => g.id === groupId);
+    if (group) {
+        group.sites = group.sites.filter(site => site.id !== siteId);
+        localStorage.setItem('startpage-data', JSON.stringify(data));
+    }
+}
+
+// 删除分组
+async function deleteGroup(groupId) {
+    const data = await loadShortcutsData();
+    data.groups = data.groups.filter(group => group.id !== groupId);
+    localStorage.setItem('startpage-data', JSON.stringify(data));
+}
+
+// 切换网站可见性
+async function toggleSiteVisibility(groupId, siteId) {
+    const data = await loadShortcutsData();
+    const group = data.groups.find(g => g.id === groupId);
+    if (group) {
+        const site = group.sites.find(s => s.id === siteId);
+        if (site) {
+            site.hidden = !site.hidden;
+            localStorage.setItem('startpage-data', JSON.stringify(data));
+            renderShortcuts();
+        }
     }
 }
 
@@ -1132,11 +1485,111 @@ async function applyWallpaper() {
     }
 }
 
+// 主题管理类
+class ThemeManager {
+    constructor() {
+        this.currentTheme = 'light';
+        this.systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    }
+
+    // 加载保存的主题设置
+    async loadTheme() {
+        try {
+            const savedTheme = localStorage.getItem('qidobloom-theme');
+            if (savedTheme) {
+                this.currentTheme = savedTheme;
+            } else {
+                this.currentTheme = 'system';
+            }
+            this.applyTheme();
+        } catch (error) {
+            console.error('Load theme error:', error);
+            this.currentTheme = 'system';
+            this.applyTheme();
+        }
+    }
+
+    // 保存主题设置
+    async saveTheme(theme) {
+        try {
+            this.currentTheme = theme;
+            localStorage.setItem('qidobloom-theme', theme);
+            this.applyTheme();
+        } catch (error) {
+            console.error('Save theme error:', error);
+        }
+    }
+
+    // 应用主题
+    applyTheme() {
+        let themeToApply = this.currentTheme;
+        if (themeToApply === 'system') {
+            themeToApply = this.systemTheme;
+        }
+
+        if (themeToApply === 'dark') {
+            document.body.classList.add('dark-mode');
+        } else {
+            document.body.classList.remove('dark-mode');
+        }
+    }
+
+    // 更新系统主题检测
+    updateSystemTheme() {
+        this.systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        if (this.currentTheme === 'system') {
+            this.applyTheme();
+        }
+    }
+}
+
+// 初始化主题管理器
+const themeManager = new ThemeManager();
+
+// 初始化主题切换功能
+function initThemeToggle() {
+    const themeButton = document.querySelector('.theme-button');
+    const themeDropdown = document.querySelector('.theme-dropdown-menu');
+    const themeOptions = document.querySelectorAll('[data-theme]');
+
+    if (!themeButton || !themeDropdown) return;
+
+    // 切换下拉菜单
+    themeButton.addEventListener('click', function(e) {
+        e.stopPropagation();
+        themeDropdown.classList.toggle('show');
+    });
+
+    // 点击外部关闭下拉菜单
+    document.addEventListener('click', function(e) {
+        if (!themeButton.contains(e.target) && !themeDropdown.contains(e.target)) {
+            themeDropdown.classList.remove('show');
+        }
+    });
+
+    // 处理主题选项点击
+    themeOptions.forEach(option => {
+        option.addEventListener('click', function(e) {
+            e.preventDefault();
+            const theme = this.dataset.theme;
+            themeManager.saveTheme(theme);
+            themeDropdown.classList.remove('show');
+        });
+    });
+
+    // 监听系统主题变化
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+        themeManager.updateSystemTheme();
+    });
+}
+
 // 页面加载完成后初始化
 window.addEventListener('DOMContentLoaded', async function() {
     await initNewSearch();
     await renderShortcuts();
     await applyWallpaper();
+    await themeManager.loadTheme();
+    initThemeToggle();
     
     // 添加页面加载动画
     document.body.style.opacity = '0';
@@ -1187,8 +1640,294 @@ function initAutocomplete() {
     });
 }
 
+// 搜索历史管理类
+class SearchHistoryManager {
+    constructor() {
+        this.history = [];
+        this.maxHistoryItems = 10;
+        this.hotKeywords = [
+            'GitHub', 'Google', '百度', '必应', 'YouTube',
+            'Notion', 'Figma', 'CodePen', 'Stack Overflow', 'MDN Web Docs',
+            'React', 'Vue', 'JavaScript', 'Python', 'TypeScript'
+        ];
+    }
+
+    // 加载搜索历史
+    loadHistory() {
+        try {
+            const savedHistory = localStorage.getItem('qidobloom-search-history');
+            if (savedHistory) {
+                this.history = JSON.parse(savedHistory);
+            }
+        } catch (error) {
+            console.error('Load search history error:', error);
+            this.history = [];
+        }
+    }
+
+    // 保存搜索历史
+    saveHistory() {
+        try {
+            localStorage.setItem('qidobloom-search-history', JSON.stringify(this.history));
+        } catch (error) {
+            console.error('Save search history error:', error);
+        }
+    }
+
+    // 添加搜索记录
+    addSearch(query) {
+        if (!query || query.trim() === '') return;
+
+        // 移除重复的记录
+        this.history = this.history.filter(item => item.query !== query);
+        
+        // 添加到历史记录开头
+        this.history.unshift({
+            query: query,
+            timestamp: Date.now(),
+            frequency: 1
+        });
+
+        // 限制历史记录数量
+        if (this.history.length > this.maxHistoryItems) {
+            this.history = this.history.slice(0, this.maxHistoryItems);
+        }
+
+        // 保存历史记录
+        this.saveHistory();
+    }
+
+    // 获取搜索历史
+    getHistory() {
+        return this.history;
+    }
+
+    // 清空搜索历史
+    clearHistory() {
+        this.history = [];
+        this.saveHistory();
+    }
+
+    // 获取热门关键词
+    getHotKeywords() {
+        return this.hotKeywords;
+    }
+
+    // 获取搜索建议
+    getSuggestions(query) {
+        if (!query || query.trim() === '') {
+            return {
+                history: this.getHistory(),
+                hot: this.getHotKeywords()
+            };
+        }
+
+        const lowercaseQuery = query.toLowerCase();
+        const historySuggestions = this.history.filter(item => 
+            item.query.toLowerCase().includes(lowercaseQuery)
+        );
+
+        const hotSuggestions = this.hotKeywords.filter(keyword => 
+            keyword.toLowerCase().includes(lowercaseQuery)
+        );
+
+        return {
+            history: historySuggestions,
+            hot: hotSuggestions
+        };
+    }
+}
+
+// 初始化搜索历史管理器
+const searchHistoryManager = new SearchHistoryManager();
+searchHistoryManager.loadHistory();
+
+// 初始化搜索建议功能
+function initSearchSuggestions() {
+    const searchInput = document.getElementById('new-search-input');
+    const searchSuggestions = document.getElementById('search-suggestions');
+
+    if (!searchInput || !searchSuggestions) return;
+
+    // 输入事件
+    searchInput.addEventListener('input', function() {
+        const query = this.value.trim();
+        if (query.length >= 0) {
+            showSearchSuggestions(query);
+        } else {
+            hideSearchSuggestions();
+        }
+    });
+
+    // 聚焦事件
+    searchInput.addEventListener('focus', function() {
+        const query = this.value.trim();
+        showSearchSuggestions(query);
+    });
+
+    // 点击外部关闭
+    document.addEventListener('click', function(e) {
+        if (!searchInput.contains(e.target) && !searchSuggestions.contains(e.target)) {
+            hideSearchSuggestions();
+        }
+    });
+
+    // 键盘事件
+    searchInput.addEventListener('keydown', function(e) {
+        const activeItem = searchSuggestions.querySelector('.search-suggestion-item.active');
+        const allItems = searchSuggestions.querySelectorAll('.search-suggestion-item');
+
+        switch (e.key) {
+            case 'ArrowDown':
+                e.preventDefault();
+                if (activeItem) {
+                    activeItem.classList.remove('active');
+                    const nextItem = activeItem.nextElementSibling;
+                    if (nextItem && nextItem.classList.contains('search-suggestion-item')) {
+                        nextItem.classList.add('active');
+                        nextItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    } else if (allItems.length > 0) {
+                        allItems[0].classList.add('active');
+                    }
+                } else if (allItems.length > 0) {
+                    allItems[0].classList.add('active');
+                }
+                break;
+            case 'ArrowUp':
+                e.preventDefault();
+                if (activeItem) {
+                    activeItem.classList.remove('active');
+                    const prevItem = activeItem.previousElementSibling;
+                    if (prevItem && prevItem.classList.contains('search-suggestion-item')) {
+                        prevItem.classList.add('active');
+                        prevItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    } else if (allItems.length > 0) {
+                        allItems[allItems.length - 1].classList.add('active');
+                    }
+                } else if (allItems.length > 0) {
+                    allItems[allItems.length - 1].classList.add('active');
+                }
+                break;
+            case 'Enter':
+                if (activeItem) {
+                    e.preventDefault();
+                    searchInput.value = activeItem.dataset.query;
+                    hideSearchSuggestions();
+                    searchInput.form.dispatchEvent(new Event('submit'));
+                }
+                break;
+            case 'Escape':
+                hideSearchSuggestions();
+                break;
+        }
+    });
+
+    // 搜索表单提交事件
+    const searchForm = document.getElementById('new-search-form');
+    if (searchForm) {
+        searchForm.addEventListener('submit', function(e) {
+            const query = searchInput.value.trim();
+            if (query) {
+                searchHistoryManager.addSearch(query);
+            }
+        });
+    }
+}
+
+// 显示搜索建议
+function showSearchSuggestions(query) {
+    const searchSuggestions = document.getElementById('search-suggestions');
+    if (!searchSuggestions) return;
+
+    const suggestions = searchHistoryManager.getSuggestions(query);
+    let html = '';
+
+    // 添加历史记录
+    if (suggestions.history.length > 0) {
+        html += `
+            <div class="search-suggestion-group">
+                <div class="search-suggestion-group-header">历史搜索</div>
+                ${suggestions.history.map(item => `
+                    <div class="search-suggestion-item" data-query="${item.query}">
+                        <div class="icon">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M12 8v4l3 3m6-3a9 9 0 1 1-18 0 9 9 0 0 1 18 0z"></path>
+                            </svg>
+                        </div>
+                        <div class="text">${item.query}</div>
+                        <div class="frequency">${formatTime(item.timestamp)}</div>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+    }
+
+    // 添加热门关键词
+    if (suggestions.hot.length > 0) {
+        html += `
+            <div class="search-suggestion-group">
+                <div class="search-suggestion-group-header">热门搜索</div>
+                ${suggestions.hot.map(keyword => `
+                    <div class="search-suggestion-item" data-query="${keyword}">
+                        <div class="icon">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
+                            </svg>
+                        </div>
+                        <div class="text">${keyword}</div>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+    }
+
+    if (html) {
+        searchSuggestions.innerHTML = html;
+        searchSuggestions.classList.add('show');
+
+        // 添加点击事件
+        const suggestionItems = searchSuggestions.querySelectorAll('.search-suggestion-item');
+        suggestionItems.forEach(item => {
+            item.addEventListener('click', function() {
+                const query = this.dataset.query;
+                document.getElementById('new-search-input').value = query;
+                hideSearchSuggestions();
+                document.getElementById('new-search-form').dispatchEvent(new Event('submit'));
+            });
+        });
+    } else {
+        hideSearchSuggestions();
+    }
+}
+
+// 隐藏搜索建议
+function hideSearchSuggestions() {
+    const searchSuggestions = document.getElementById('search-suggestions');
+    if (searchSuggestions) {
+        searchSuggestions.classList.remove('show');
+    }
+}
+
+// 格式化时间
+function formatTime(timestamp) {
+    const now = Date.now();
+    const diff = now - timestamp;
+    const minutes = Math.floor(diff / 60000);
+    const hours = Math.floor(diff / 3600000);
+    const days = Math.floor(diff / 86400000);
+
+    if (minutes < 1) return '刚刚';
+    if (minutes < 60) return `${minutes}分钟前`;
+    if (hours < 24) return `${hours}小时前`;
+    if (days < 7) return `${days}天前`;
+    return '一周前';
+}
+
 // 初始化自动完成
 initAutocomplete();
+
+// 初始化搜索建议
+initSearchSuggestions();
 
 // 初始化管理下拉菜单
 function initManageDropdown() {
@@ -1390,6 +2129,34 @@ function showPopup(type) {
                 <div class="popup-body">
                     <!-- 壁纸设置界面 -->
                     <div class="wallpaper-management">
+                        <!-- 壁纸设置选项 -->
+                        <div class="wallpaper-settings">
+                            <h4>壁纸设置</h4>
+                            <div class="form-group">
+                                <label for="wallpaper-blur">模糊效果</label>
+                                <input type="range" id="wallpaper-blur" min="0" max="20" value="0" class="form-control">
+                                <span id="blur-value">0px</span>
+                            </div>
+                            <div class="form-group">
+                                <label for="wallpaper-fit">自适应方式</label>
+                                <select id="wallpaper-fit" class="form-control">
+                                    <option value="cover">覆盖</option>
+                                    <option value="contain">包含</option>
+                                    <option value="stretch">拉伸</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="wallpaper-position">位置</label>
+                                <select id="wallpaper-position" class="form-control">
+                                    <option value="center">居中</option>
+                                    <option value="top">顶部</option>
+                                    <option value="bottom">底部</option>
+                                    <option value="left">左侧</option>
+                                    <option value="right">右侧</option>
+                                </select>
+                            </div>
+                        </div>
+                        
                         <!-- 已有壁纸 -->
                         <div class="wallpaper-section">
                             <h4>已有壁纸</h4>
@@ -2081,6 +2848,44 @@ async function initPopupWallpaperManagement(popupContent) {
     const wallpaperManager = new PopupWallpaperManager();
     await wallpaperManager.loadCurrentWallpaper();
     await wallpaperManager.loadUploadedWallpapers();
+    
+    // 初始化壁纸设置控件
+    const blurSlider = popupContent.querySelector('#wallpaper-blur');
+    const blurValue = popupContent.querySelector('#blur-value');
+    const fitSelect = popupContent.querySelector('#wallpaper-fit');
+    const positionSelect = popupContent.querySelector('#wallpaper-position');
+    
+    if (blurSlider && blurValue) {
+        blurSlider.value = wallpaperManager.wallpaperSettings.blur;
+        blurValue.textContent = `${wallpaperManager.wallpaperSettings.blur}px`;
+        
+        // 模糊效果调整
+        blurSlider.addEventListener('input', function() {
+            const blur = parseInt(this.value);
+            blurValue.textContent = `${blur}px`;
+            wallpaperManager.saveWallpaperSettings({ blur });
+        });
+    }
+    
+    if (fitSelect) {
+        fitSelect.value = wallpaperManager.wallpaperSettings.fit;
+        
+        // 自适应方式调整
+        fitSelect.addEventListener('change', function() {
+            const fit = this.value;
+            wallpaperManager.saveWallpaperSettings({ fit });
+        });
+    }
+    
+    if (positionSelect) {
+        positionSelect.value = wallpaperManager.wallpaperSettings.position;
+        
+        // 位置调整
+        positionSelect.addEventListener('change', function() {
+            const position = this.value;
+            wallpaperManager.saveWallpaperSettings({ position });
+        });
+    }
 
 
 
@@ -2216,26 +3021,27 @@ async function initPopupWallpaperManagement(popupContent) {
         fileInput.addEventListener('change', async function(e) {
             const file = e.target.files[0];
             if (file) {
-                const base64Image = await wallpaperManager.handleImageUpload(file);
-                if (base64Image) {
+                // 压缩图片
+                const compressedImage = await wallpaperManager.compressImage(file);
+                if (compressedImage) {
                     // 保存到已上传壁纸列表
-                    await wallpaperManager.addUploadedWallpaper(base64Image);
+                    await wallpaperManager.addUploadedWallpaper(compressedImage);
                     
-                    if (await wallpaperManager.saveWallpaper(base64Image)) {
-                        wallpaperManager.applyWallpaper(base64Image);
+                    if (await wallpaperManager.saveWallpaper(compressedImage)) {
+                        wallpaperManager.applyWallpaper(compressedImage);
                         
                         // 将新壁纸添加到已有壁纸列表
                         const wallpaperPreviews = popupContent.querySelector('.wallpaper-previews');
                         if (wallpaperPreviews) {
                             // 检查是否已存在相同的壁纸
-                            const existingPreview = Array.from(wallpaperPreviews.children).find(p => p.dataset.wallpaper === base64Image);
+                            const existingPreview = Array.from(wallpaperPreviews.children).find(p => p.dataset.wallpaper === compressedImage);
                             if (!existingPreview) {
                                 const newPreview = document.createElement('div');
                                 newPreview.className = 'wallpaper-preview selected';
-                                newPreview.dataset.wallpaper = base64Image;
+                                newPreview.dataset.wallpaper = compressedImage;
                                 newPreview.innerHTML = `
-                                    <div class="wallpaper-thumbnail" style="background-image: url('${base64Image}'); background-size: cover; background-position: center;"></div>
-                                    <button class="wallpaper-delete-btn" data-wallpaper="${base64Image}">&times;</button>
+                                    <div class="wallpaper-thumbnail" style="background-image: url('${compressedImage}'); background-size: cover; background-position: center;"></div>
+                                    <button class="wallpaper-delete-btn" data-wallpaper="${compressedImage}">&times;</button>
                                 `;
                                 
                                 // 绑定点击事件
