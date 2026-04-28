@@ -3050,3 +3050,1408 @@ async function initPopupSettingsManagement(popupContent) {
         });
     }
 }
+
+// ============================================
+// 视觉交互增强模块
+// ============================================
+
+// 粒子动效系统
+class ParticleSystem {
+    constructor(containerId) {
+        this.container = document.getElementById(containerId);
+        this.particles = [];
+        this.maxParticles = 50;
+        this.isRunning = false;
+        this.animationFrame = null;
+        this.colors = [
+            'rgba(102, 126, 234, 0.6)',
+            'rgba(118, 75, 162, 0.5)',
+            'rgba(240, 147, 251, 0.4)',
+            'rgba(79, 172, 254, 0.5)',
+            'rgba(0, 242, 254, 0.4)'
+        ];
+    }
+
+    createParticle() {
+        if (this.particles.length >= this.maxParticles) return null;
+
+        const particle = document.createElement('div');
+        particle.className = 'particle';
+        
+        const size = Math.random() * 6 + 2;
+        const x = Math.random() * window.innerWidth;
+        const duration = Math.random() * 15 + 10;
+        const delay = Math.random() * 5;
+        const color = this.colors[Math.floor(Math.random() * this.colors.length)];
+        
+        particle.style.width = `${size}px`;
+        particle.style.height = `${size}px`;
+        particle.style.left = `${x}px`;
+        particle.style.background = color;
+        particle.style.animationDuration = `${duration}s`;
+        particle.style.animationDelay = `${delay}s`;
+        particle.style.boxShadow = `0 0 ${size * 2}px ${color}`;
+        
+        this.container.appendChild(particle);
+        this.particles.push(particle);
+
+        setTimeout(() => {
+            if (particle.parentNode) {
+                particle.parentNode.removeChild(particle);
+                const index = this.particles.indexOf(particle);
+                if (index > -1) {
+                    this.particles.splice(index, 1);
+                }
+            }
+        }, (duration + delay) * 1000);
+
+        return particle;
+    }
+
+    start() {
+        if (this.isRunning) return;
+        this.isRunning = true;
+
+        const createInterval = () => {
+            if (this.isRunning) {
+                this.createParticle();
+                setTimeout(createInterval, Math.random() * 800 + 400);
+            }
+        };
+
+        for (let i = 0; i < 10; i++) {
+            setTimeout(() => this.createParticle(), i * 200);
+        }
+        createInterval();
+    }
+
+    stop() {
+        this.isRunning = false;
+        if (this.animationFrame) {
+            cancelAnimationFrame(this.animationFrame);
+        }
+    }
+}
+
+// 点击波纹效果
+function createRipple(event) {
+    const button = event.currentTarget;
+    const ripple = document.createElement('span');
+    const rect = button.getBoundingClientRect();
+    const size = Math.max(rect.width, rect.height);
+    const x = event.clientX - rect.left - size / 2;
+    const y = event.clientY - rect.top - size / 2;
+
+    ripple.style.width = ripple.style.height = `${size}px`;
+    ripple.style.left = `${x}px`;
+    ripple.style.top = `${y}px`;
+    ripple.className = 'ripple';
+
+    button.style.position = 'relative';
+    button.style.overflow = 'hidden';
+    button.appendChild(ripple);
+
+    setTimeout(() => {
+        ripple.remove();
+    }, 300);
+}
+
+// 为所有可点击元素添加波纹效果
+function initRippleEffect() {
+    const clickableElements = document.querySelectorAll(
+        '.action-button, .btn, .dropdown-item, .shortcut-item, ' +
+        '.new-search-button, .engine-option, .selected-engine'
+    );
+    
+    clickableElements.forEach(element => {
+        element.addEventListener('click', createRipple);
+    });
+}
+
+// 页面加载动画
+function initPageLoadAnimation() {
+    setTimeout(() => {
+        document.body.classList.add('loaded');
+    }, 100);
+}
+
+// 时间显示增强
+function updateDateTimeEnhanced() {
+    const timeElement = document.getElementById('time');
+    if (timeElement) {
+        const now = new Date();
+        const hours = String(now.getHours()).padStart(2, '0');
+        const minutes = String(now.getMinutes()).padStart(2, '0');
+        const seconds = String(now.getSeconds()).padStart(2, '0');
+        const timeString = `${hours}:${minutes}:${seconds}`;
+        
+        timeElement.textContent = timeString;
+        timeElement.setAttribute('data-time', timeString);
+    }
+}
+
+// ============================================
+// 随机漫游模式模块
+// ============================================
+
+const RandomMode = {
+    BOOKMARK_ONLY: 'bookmark_only',
+    CUSTOM_LIST: 'custom_list',
+    MIXED: 'mixed'
+};
+
+const UsageScenario = {
+    WORK: 'work',
+    ENTERTAINMENT: 'entertainment',
+    STUDY: 'study'
+};
+
+class RandomRoamManager {
+    constructor() {
+        this.currentMode = RandomMode.MIXED;
+        this.customList = [];
+        this.blacklist = [];
+        this.currentScenario = null;
+        this.lastRandomTime = null;
+        this.randomHistory = [];
+        this.maxHistorySize = 50;
+    }
+
+    async loadSettings() {
+        try {
+            const savedSettings = await SecureStorage.getItem('randomRoamSettings');
+            if (savedSettings) {
+                const settings = JSON.parse(savedSettings);
+                this.currentMode = settings.currentMode || RandomMode.MIXED;
+                this.customList = settings.customList || [];
+                this.blacklist = settings.blacklist || [];
+                this.lastRandomTime = settings.lastRandomTime ? new Date(settings.lastRandomTime) : null;
+            }
+        } catch (error) {
+            console.error('Load random roam settings error:', error);
+        }
+    }
+
+    async saveSettings() {
+        try {
+            const settings = {
+                currentMode: this.currentMode,
+                customList: this.customList,
+                blacklist: this.blacklist,
+                lastRandomTime: this.lastRandomTime ? this.lastRandomTime.toISOString() : null
+            };
+            await SecureStorage.setItem('randomRoamSettings', JSON.stringify(settings));
+        } catch (error) {
+            console.error('Save random roam settings error:', error);
+        }
+    }
+
+    detectCurrentScenario() {
+        const hour = new Date().getHours();
+        const day = new Date().getDay();
+        const isWeekend = day === 0 || day === 6;
+
+        if (isWeekend) {
+            if (hour >= 10 && hour < 18) {
+                return UsageScenario.ENTERTAINMENT;
+            } else if (hour >= 18 && hour < 23) {
+                return UsageScenario.MIXED;
+            }
+            return UsageScenario.ENTERTAINMENT;
+        } else {
+            if (hour >= 9 && hour < 12) {
+                return UsageScenario.WORK;
+            } else if (hour >= 14 && hour < 18) {
+                return UsageScenario.WORK;
+            } else if (hour >= 19 && hour < 22) {
+                return UsageScenario.ENTERTAINMENT;
+            } else if (hour >= 22 || hour < 6) {
+                return UsageScenario.ENTERTAINMENT;
+            }
+            return UsageScenario.MIXED;
+        }
+    }
+
+    getOptimalModeForScenario(scenario) {
+        switch (scenario) {
+            case UsageScenario.WORK:
+                return RandomMode.CUSTOM_LIST;
+            case UsageScenario.ENTERTAINMENT:
+                return RandomMode.MIXED;
+            case UsageScenario.STUDY:
+                return RandomMode.BOOKMARK_ONLY;
+            default:
+                return RandomMode.MIXED;
+        }
+    }
+
+    async setMode(mode) {
+        this.currentMode = mode;
+        await this.saveSettings();
+        await this.logAction('mode_change', { mode: mode });
+    }
+
+    async setScenarioBasedMode() {
+        const scenario = this.detectCurrentScenario();
+        this.currentScenario = scenario;
+        const optimalMode = this.getOptimalModeForScenario(scenario);
+        this.currentMode = optimalMode;
+        await this.saveSettings();
+        await this.logAction('scenario_based_mode', { 
+            scenario: scenario, 
+            mode: optimalMode 
+        });
+        return { scenario, mode: optimalMode };
+    }
+
+    async addToCustomList(site) {
+        if (!this.customList.find(s => s.url === site.url)) {
+            this.customList.push({
+                id: Date.now().toString(),
+                ...site,
+                addedAt: new Date().toISOString()
+            });
+            await this.saveSettings();
+            await this.logAction('add_to_custom_list', { site: site.name || site.url });
+        }
+    }
+
+    async removeFromCustomList(id) {
+        const index = this.customList.findIndex(s => s.id === id);
+        if (index > -1) {
+            const removed = this.customList.splice(index, 1)[0];
+            await this.saveSettings();
+            await this.logAction('remove_from_custom_list', { site: removed.name || removed.url });
+        }
+    }
+
+    async addToBlacklist(url) {
+        if (!this.blacklist.includes(url)) {
+            this.blacklist.push(url);
+            await this.saveSettings();
+            await this.logAction('add_to_blacklist', { url: url });
+        }
+    }
+
+    async removeFromBlacklist(url) {
+        const index = this.blacklist.indexOf(url);
+        if (index > -1) {
+            this.blacklist.splice(index, 1);
+            await this.saveSettings();
+            await this.logAction('remove_from_blacklist', { url: url });
+        }
+    }
+
+    isBlacklisted(url) {
+        return this.blacklist.some(blacklisted => 
+            url.includes(blacklisted) || blacklisted.includes(url)
+        );
+    }
+
+    async getAllAvailableSites() {
+        const allSites = [];
+        
+        const shortcutsData = await loadShortcutsData();
+        if (shortcutsData && shortcutsData.groups) {
+            shortcutsData.groups.forEach(group => {
+                if (group.sites) {
+                    group.sites.forEach(site => {
+                        if (!this.isBlacklisted(site.url)) {
+                            allSites.push({
+                                ...site,
+                                source: 'bookmark',
+                                group: group.name
+                            });
+                        }
+                    });
+                }
+            });
+        }
+
+        this.customList.forEach(site => {
+            if (!this.isBlacklisted(site.url)) {
+                allSites.push({
+                    ...site,
+                    source: 'custom'
+                });
+            }
+        });
+
+        return allSites;
+    }
+
+    async getRandomSite() {
+        const allSites = await this.getAllAvailableSites();
+        
+        if (allSites.length === 0) {
+            return null;
+        }
+
+        let candidateSites = [];
+
+        switch (this.currentMode) {
+            case RandomMode.BOOKMARK_ONLY:
+                candidateSites = allSites.filter(s => s.source === 'bookmark');
+                break;
+            case RandomMode.CUSTOM_LIST:
+                candidateSites = allSites.filter(s => s.source === 'custom');
+                break;
+            case RandomMode.MIXED:
+            default:
+                candidateSites = allSites;
+                break;
+        }
+
+        if (candidateSites.length === 0) {
+            candidateSites = allSites;
+        }
+
+        const recentHistory = this.randomHistory.slice(-10);
+        const availableSites = candidateSites.filter(site => 
+            !recentHistory.some(h => h.url === site.url)
+        );
+
+        const sitesToChoose = availableSites.length > 0 ? availableSites : candidateSites;
+        const randomIndex = Math.floor(Math.random() * sitesToChoose.length);
+        const selectedSite = sitesToChoose[randomIndex];
+
+        this.lastRandomTime = new Date();
+        this.randomHistory.push({
+            ...selectedSite,
+            timestamp: new Date().toISOString(),
+            mode: this.currentMode
+        });
+
+        if (this.randomHistory.length > this.maxHistorySize) {
+            this.randomHistory = this.randomHistory.slice(-this.maxHistorySize);
+        }
+
+        await this.saveSettings();
+        await this.logAction('random_selection', { 
+            site: selectedSite.name || selectedSite.url,
+            mode: this.currentMode
+        });
+
+        return selectedSite;
+    }
+
+    async logAction(action, details) {
+        const logEntry = {
+            id: Date.now().toString(),
+            timestamp: new Date().toISOString(),
+            action: action,
+            details: details
+        };
+
+        try {
+            let logs = [];
+            const savedLogs = await SecureStorage.getItem('operationLogs');
+            if (savedLogs) {
+                logs = JSON.parse(savedLogs);
+            }
+            logs.unshift(logEntry);
+            
+            if (logs.length > 500) {
+                logs = logs.slice(0, 500);
+            }
+
+            await SecureStorage.setItem('operationLogs', JSON.stringify(logs));
+        } catch (error) {
+            console.error('Log action error:', error);
+        }
+    }
+
+    getRandomHistory() {
+        return this.randomHistory;
+    }
+
+    getCurrentMode() {
+        return this.currentMode;
+    }
+
+    getCustomList() {
+        return this.customList;
+    }
+
+    getBlacklist() {
+        return this.blacklist;
+    }
+}
+
+// ============================================
+// 安全存储模块
+// ============================================
+
+const SecureStorage = {
+    encryptionKey: null,
+
+    generateKey() {
+        try {
+            const savedKey = localStorage.getItem('encryptionKey');
+            if (savedKey) {
+                this.encryptionKey = savedKey;
+            } else {
+                const key = this.generateRandomKey(32);
+                this.encryptionKey = key;
+                localStorage.setItem('encryptionKey', key);
+            }
+        } catch (error) {
+            console.error('Generate key error:', error);
+            this.encryptionKey = 'default_secure_key_2024';
+        }
+    },
+
+    generateRandomKey(length) {
+        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
+        let key = '';
+        for (let i = 0; i < length; i++) {
+            key += chars.charAt(Math.floor(Math.random() * chars.length));
+        }
+        return key;
+    },
+
+    simpleEncrypt(text, key) {
+        try {
+            let result = '';
+            for (let i = 0; i < text.length; i++) {
+                const charCode = text.charCodeAt(i) ^ key.charCodeAt(i % key.length);
+                result += String.fromCharCode(charCode);
+            }
+            return btoa(encodeURIComponent(result));
+        } catch (error) {
+            console.error('Encryption error:', error);
+            return text;
+        }
+    },
+
+    simpleDecrypt(encrypted, key) {
+        try {
+            const decoded = decodeURIComponent(atob(encrypted));
+            let result = '';
+            for (let i = 0; i < decoded.length; i++) {
+                const charCode = decoded.charCodeAt(i) ^ key.charCodeAt(i % key.length);
+                result += String.fromCharCode(charCode);
+            }
+            return result;
+        } catch (error) {
+            console.error('Decryption error:', error);
+            return encrypted;
+        }
+    },
+
+    async setItem(key, value) {
+        try {
+            if (!this.encryptionKey) {
+                this.generateKey();
+            }
+
+            const encryptedValue = this.simpleEncrypt(value, this.encryptionKey);
+            localStorage.setItem(key, encryptedValue);
+
+            this.createBackup(key, value);
+
+            return true;
+        } catch (error) {
+            console.error('Set item error:', error);
+            localStorage.setItem(key, value);
+            return false;
+        }
+    },
+
+    async getItem(key) {
+        try {
+            if (!this.encryptionKey) {
+                this.generateKey();
+            }
+
+            const encryptedValue = localStorage.getItem(key);
+            if (!encryptedValue) {
+                return this.getBackup(key);
+            }
+
+            try {
+                return this.simpleDecrypt(encryptedValue, this.encryptionKey);
+            } catch (decryptError) {
+                console.warn('Decryption failed, trying backup:', decryptError);
+                const backup = this.getBackup(key);
+                if (backup) {
+                    return backup;
+                }
+                return encryptedValue;
+            }
+        } catch (error) {
+            console.error('Get item error:', error);
+            return localStorage.getItem(key);
+        }
+    },
+
+    createBackup(key, value) {
+        try {
+            const backups = this.getBackups();
+            const timestamp = Date.now();
+            
+            if (!backups[key]) {
+                backups[key] = [];
+            }
+
+            backups[key].push({
+                value: value,
+                timestamp: timestamp,
+                date: new Date().toISOString()
+            });
+
+            if (backups[key].length > 5) {
+                backups[key] = backups[key].slice(-5);
+            }
+
+            localStorage.setItem('secureBackups', JSON.stringify(backups));
+        } catch (error) {
+            console.error('Create backup error:', error);
+        }
+    },
+
+    getBackups() {
+        try {
+            const backupStr = localStorage.getItem('secureBackups');
+            if (backupStr) {
+                return JSON.parse(backupStr);
+            }
+        } catch (error) {
+            console.error('Get backups error:', error);
+        }
+        return {};
+    },
+
+    getBackup(key) {
+        try {
+            const backups = this.getBackups();
+            if (backups[key] && backups[key].length > 0) {
+                const latest = backups[key][backups[key].length - 1];
+                return latest.value;
+            }
+        } catch (error) {
+            console.error('Get backup error:', error);
+        }
+        return null;
+    },
+
+    async exportAllConfig() {
+        try {
+            const config = {
+                version: '2.0',
+                exportTime: new Date().toISOString(),
+                
+                shortcuts: await loadShortcutsData(),
+                
+                searchEngines: await loadSearchEngines(),
+                
+                wallpaper: localStorage.getItem('startpage-data') ? 
+                    JSON.parse(localStorage.getItem('startpage-data')).wallpaper : 'white',
+                
+                faviconApi: localStorage.getItem('startpage-faviconapi') ? 
+                    JSON.parse(localStorage.getItem('startpage-faviconapi')) : null,
+                
+                randomRoamSettings: await SecureStorage.getItem('randomRoamSettings') ? 
+                    JSON.parse(await SecureStorage.getItem('randomRoamSettings')) : null,
+                
+                operationLogs: await SecureStorage.getItem('operationLogs') ? 
+                    JSON.parse(await SecureStorage.getItem('operationLogs')) : null
+            };
+
+            return config;
+        } catch (error) {
+            console.error('Export config error:', error);
+            throw error;
+        }
+    },
+
+    async importAllConfig(config) {
+        try {
+            if (config.shortcuts) {
+                localStorage.setItem('startpage-data', JSON.stringify({
+                    ...JSON.parse(localStorage.getItem('startpage-data') || '{}'),
+                    groups: config.shortcuts.groups || [],
+                    wallpaper: config.wallpaper || 'white'
+                }));
+            }
+
+            if (config.searchEngines) {
+                localStorage.setItem('searchEngines', JSON.stringify(config.searchEngines));
+            }
+
+            if (config.faviconApi) {
+                localStorage.setItem('startpage-faviconapi', JSON.stringify(config.faviconApi));
+            }
+
+            if (config.randomRoamSettings) {
+                await SecureStorage.setItem('randomRoamSettings', JSON.stringify(config.randomRoamSettings));
+            }
+
+            if (config.operationLogs) {
+                await SecureStorage.setItem('operationLogs', JSON.stringify(config.operationLogs));
+            }
+
+            return true;
+        } catch (error) {
+            console.error('Import config error:', error);
+            throw error;
+        }
+    }
+};
+
+// ============================================
+// 操作日志管理模块
+// ============================================
+
+class OperationLogManager {
+    constructor() {
+        this.maxLogs = 500;
+    }
+
+    async getAllLogs() {
+        try {
+            const logsStr = await SecureStorage.getItem('operationLogs');
+            if (logsStr) {
+                return JSON.parse(logsStr);
+            }
+        } catch (error) {
+            console.error('Get logs error:', error);
+        }
+        return [];
+    }
+
+    async getLogsByType(actionType) {
+        const logs = await this.getAllLogs();
+        return logs.filter(log => log.action === actionType);
+    }
+
+    async getLogsByDateRange(startDate, endDate) {
+        const logs = await this.getAllLogs();
+        return logs.filter(log => {
+            const logDate = new Date(log.timestamp);
+            return logDate >= startDate && logDate <= endDate;
+        });
+    }
+
+    async clearLogs() {
+        try {
+            await SecureStorage.setItem('operationLogs', JSON.stringify([]));
+            return true;
+        } catch (error) {
+            console.error('Clear logs error:', error);
+            return false;
+        }
+    }
+
+    async exportLogs() {
+        const logs = await this.getAllLogs();
+        return {
+            version: '1.0',
+            exportTime: new Date().toISOString(),
+            totalLogs: logs.length,
+            logs: logs
+        };
+    }
+}
+
+// ============================================
+// 全局初始化
+// ============================================
+
+let particleSystem;
+let randomRoamManager;
+let logManager;
+
+function initEnhancedFeatures() {
+    SecureStorage.generateKey();
+
+    particleSystem = new ParticleSystem('particles-container');
+    particleSystem.start();
+
+    randomRoamManager = new RandomRoamManager();
+    randomRoamManager.loadSettings();
+
+    logManager = new OperationLogManager();
+
+    initPageLoadAnimation();
+
+    setTimeout(() => {
+        initRippleEffect();
+    }, 500);
+
+    const originalUpdateDateTime = updateDateTime;
+    updateDateTime = function() {
+        originalUpdateDateTime();
+        updateDateTimeEnhanced();
+    };
+
+    addRandomRoamButton();
+
+    console.log('Enhanced features initialized successfully');
+}
+
+function addRandomRoamButton() {
+    const topRight = document.querySelector('.top-right');
+    if (!topRight) return;
+
+    const roamButton = document.createElement('div');
+    roamButton.className = 'dropdown-container';
+    roamButton.innerHTML = `
+        <button class="action-button roam-button" id="roam-button" title="随机漫游">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="11" cy="11" r="8"></circle>
+                <path d="m21 21-4.35-4.35"></path>
+                <path d="M16 11a5 5 0 0 1-5 5"></path>
+                <path d="M8.79 9.39a5 5 0 0 1 7.82-1.4"></path>
+            </svg>
+            <span>随机漫游</span>
+        </button>
+        <div class="roam-dropdown-menu manage-dropdown-menu">
+            <div class="dropdown-item" data-action="random-now">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="2 18 6 14 12 20 22 4"></polyline>
+                    <line x1="16" y1="8" x2="22" y2="4"></line>
+                    <line x1="22" y1="8" x2="16" y2="4"></line>
+                </svg>
+                <span>立即随机</span>
+            </div>
+            <div class="dropdown-divider"></div>
+            <div class="dropdown-item" data-action="mode-bookmark">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path>
+                </svg>
+                <span>纯书签模式</span>
+            </div>
+            <div class="dropdown-item" data-action="mode-custom">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                </svg>
+                <span>自定义列表</span>
+            </div>
+            <div class="dropdown-item" data-action="mode-mixed">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polygon points="12 2 15.09 8.26 22 9 17 14.74 18.18 21.02 12 17.77 5.82 21.02 7 14.74 2 9 8.91 8.26 12 2"></polygon>
+                </svg>
+                <span>混合模式</span>
+            </div>
+            <div class="dropdown-divider"></div>
+            <div class="dropdown-item" data-action="manage-custom">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                    <line x1="3" y1="9" x2="21" y2="9"></line>
+                    <line x1="9" y1="21" x2="9" y2="9"></line>
+                </svg>
+                <span>管理自定义列表</span>
+            </div>
+            <div class="dropdown-item" data-action="view-history">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <polyline points="12 6 12 12 16 14"></polyline>
+                </svg>
+                <span>查看历史记录</span>
+            </div>
+            <div class="dropdown-item" data-action="view-logs">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                    <polyline points="14 2 14 8 20 8"></polyline>
+                    <line x1="16" y1="13" x2="8" y2="13"></line>
+                    <line x1="16" y1="17" x2="8" y2="17"></line>
+                    <polyline points="10 9 9 9 8 9"></polyline>
+                </svg>
+                <span>操作日志</span>
+            </div>
+        </div>
+    `;
+
+    topRight.insertBefore(roamButton, topRight.firstChild);
+
+    const roamButtonEl = document.getElementById('roam-button');
+    const roamDropdown = roamButton.querySelector('.roam-dropdown-menu');
+
+    roamButtonEl.addEventListener('click', function(e) {
+        e.stopPropagation();
+        roamDropdown.classList.toggle('show');
+        document.querySelector('.manage-dropdown-menu')?.classList.remove('show');
+    });
+
+    roamDropdown.querySelectorAll('.dropdown-item').forEach(item => {
+        item.addEventListener('click', async function(e) {
+            e.preventDefault();
+            const action = this.dataset.action;
+            roamDropdown.classList.remove('show');
+
+            switch (action) {
+                case 'random-now':
+                    const site = await randomRoamManager.getRandomSite();
+                    if (site) {
+                        showMessage(`随机选中: ${site.name || site.url}`);
+                        setTimeout(() => {
+                            window.open(site.url, '_blank');
+                        }, 500);
+                    } else {
+                        showMessage('没有可随机的网站，请先添加网站', 'error');
+                    }
+                    break;
+
+                case 'mode-bookmark':
+                    await randomRoamManager.setMode(RandomMode.BOOKMARK_ONLY);
+                    showMessage('已切换到纯书签随机模式');
+                    break;
+
+                case 'mode-custom':
+                    await randomRoamManager.setMode(RandomMode.CUSTOM_LIST);
+                    showMessage('已切换到自定义列表随机模式');
+                    break;
+
+                case 'mode-mixed':
+                    await randomRoamManager.setMode(RandomMode.MIXED);
+                    showMessage('已切换到混合随机模式');
+                    break;
+
+                case 'manage-custom':
+                    showCustomListPopup();
+                    break;
+
+                case 'view-history':
+                    showHistoryPopup();
+                    break;
+
+                case 'view-logs':
+                    showLogsPopup();
+                    break;
+            }
+        });
+    });
+}
+
+function showCustomListPopup() {
+    const customList = randomRoamManager.getCustomList();
+    
+    let popupContainer = document.getElementById('popup-container');
+    if (!popupContainer) {
+        popupContainer = document.createElement('div');
+        popupContainer.id = 'popup-container';
+        popupContainer.className = 'popup-container';
+        document.body.appendChild(popupContainer);
+    }
+    
+    popupContainer.innerHTML = '';
+    
+    const popupContent = document.createElement('div');
+    popupContent.className = 'popup-content';
+    
+    popupContent.innerHTML = `
+        <div class="popup-header">
+            <h3>自定义随机列表</h3>
+            <button class="popup-close">&times;</button>
+        </div>
+        <div class="popup-body">
+            <div style="margin-bottom: 20px;">
+                <button id="add-custom-site" class="btn btn-primary">添加网站</button>
+            </div>
+            <div id="custom-sites-list" style="max-height: 400px; overflow-y: auto;">
+                ${customList.length === 0 ? `
+                    <div class="empty-state">
+                        <h5>暂无自定义网站</h5>
+                        <p>点击"添加网站"按钮添加到随机列表</p>
+                    </div>
+                ` : customList.map(site => `
+                    <div class="popup-site-item" style="margin-bottom: 12px; padding: 16px;">
+                        <div class="popup-site-info">
+                            <div class="popup-site-icon" style="width: 32px; height: 32px;">
+                                ${site.name ? site.name.charAt(0).toUpperCase() : '?'}
+                            </div>
+                            <div class="popup-site-details">
+                                <div class="popup-site-name">${site.name || '未命名'}</div>
+                                <div class="popup-site-url" style="font-size: 0.75rem; color: rgba(0,0,0,0.6);">${site.url}</div>
+                            </div>
+                        </div>
+                        <div class="popup-site-actions">
+                            <button class="btn btn-danger btn-sm remove-custom-site" data-id="${site.id}">删除</button>
+                        </div>
+                    </div>
+                `).join('')}
+            </div>
+        </div>
+    `;
+    
+    popupContainer.appendChild(popupContent);
+    popupContainer.classList.add('show');
+    popupContent.classList.add('show');
+
+    const closeBtn = popupContent.querySelector('.popup-close');
+    if (closeBtn) {
+        closeBtn.addEventListener('click', () => {
+            popupContainer.classList.remove('show');
+            setTimeout(() => {
+                popupContainer.innerHTML = '';
+            }, 300);
+        });
+    }
+
+    popupContainer.addEventListener('click', (e) => {
+        if (e.target === popupContainer) {
+            popupContainer.classList.remove('show');
+            setTimeout(() => {
+                popupContainer.innerHTML = '';
+            }, 300);
+        }
+    });
+
+    const addBtn = popupContent.querySelector('#add-custom-site');
+    if (addBtn) {
+        addBtn.addEventListener('click', () => {
+            showAddCustomSitePopup();
+        });
+    }
+
+    popupContent.querySelectorAll('.remove-custom-site').forEach(btn => {
+        btn.addEventListener('click', async function() {
+            const id = this.dataset.id;
+            await randomRoamManager.removeFromCustomList(id);
+            showMessage('已从自定义列表中删除');
+            const siteItem = this.closest('.popup-site-item');
+            if (siteItem) {
+                siteItem.style.transition = 'all 0.3s ease';
+                siteItem.style.opacity = '0';
+                siteItem.style.transform = 'translateX(20px)';
+                setTimeout(() => {
+                    siteItem.remove();
+                    const list = popupContent.querySelector('#custom-sites-list');
+                    if (list.querySelectorAll('.popup-site-item').length === 0) {
+                        list.innerHTML = `
+                            <div class="empty-state">
+                                <h5>暂无自定义网站</h5>
+                                <p>点击"添加网站"按钮添加到随机列表</p>
+                            </div>
+                        `;
+                    }
+                }, 300);
+            }
+        });
+    });
+}
+
+function showAddCustomSitePopup() {
+    const addPopup = document.createElement('div');
+    addPopup.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.5);
+        backdrop-filter: blur(5px);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 2100;
+    `;
+    
+    addPopup.innerHTML = `
+        <div class="modal-content" style="
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(20px);
+            border-radius: 16px;
+            padding: 32px;
+            width: 90%;
+            max-width: 400px;
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.2);
+            transform: translateY(30px);
+            opacity: 0;
+            transition: all 0.3s ease;
+        ">
+            <h3 style="margin: 0 0 24px 0; font-size: 1.3rem; font-weight: 600; text-align: center;">添加到随机列表</h3>
+            <div class="form-group">
+                <label for="custom-site-name">网站名称</label>
+                <input type="text" id="custom-site-name" class="form-control" placeholder="例如: 我的博客" required>
+            </div>
+            <div class="form-group">
+                <label for="custom-site-url">网站地址</label>
+                <input type="url" id="custom-site-url" class="form-control" placeholder="https://example.com" required>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px;">
+                <button id="cancel-add-custom" class="btn btn-secondary">取消</button>
+                <button id="confirm-add-custom" class="btn btn-primary">添加</button>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(addPopup);
+    
+    setTimeout(() => {
+        const modalContent = addPopup.querySelector('.modal-content');
+        modalContent.style.transform = 'translateY(0)';
+        modalContent.style.opacity = '1';
+    }, 10);
+
+    const cancelBtn = addPopup.querySelector('#cancel-add-custom');
+    cancelBtn.addEventListener('click', () => {
+        const modalContent = addPopup.querySelector('.modal-content');
+        modalContent.style.transform = 'translateY(30px)';
+        modalContent.style.opacity = '0';
+        setTimeout(() => addPopup.remove(), 300);
+    });
+
+    const confirmBtn = addPopup.querySelector('#confirm-add-custom');
+    confirmBtn.addEventListener('click', async () => {
+        const name = document.getElementById('custom-site-name').value.trim();
+        const url = document.getElementById('custom-site-url').value.trim();
+
+        if (!name || !url) {
+            showMessage('请填写网站名称和地址', 'error');
+            return;
+        }
+
+        await randomRoamManager.addToCustomList({
+            name: name,
+            url: url
+        });
+
+        showMessage('已添加到自定义随机列表');
+        const modalContent = addPopup.querySelector('.modal-content');
+        modalContent.style.transform = 'translateY(30px)';
+        modalContent.style.opacity = '0';
+        setTimeout(() => {
+            addPopup.remove();
+            const popupContainer = document.getElementById('popup-container');
+            if (popupContainer && popupContainer.classList.contains('show')) {
+                popupContainer.classList.remove('show');
+                setTimeout(() => {
+                    showCustomListPopup();
+                }, 100);
+            }
+        }, 300);
+    });
+
+    addPopup.addEventListener('click', (e) => {
+        if (e.target === addPopup) {
+            const modalContent = addPopup.querySelector('.modal-content');
+            modalContent.style.transform = 'translateY(30px)';
+            modalContent.style.opacity = '0';
+            setTimeout(() => addPopup.remove(), 300);
+        }
+    });
+}
+
+function showHistoryPopup() {
+    const history = randomRoamManager.getRandomHistory();
+    
+    let popupContainer = document.getElementById('popup-container');
+    if (!popupContainer) {
+        popupContainer = document.createElement('div');
+        popupContainer.id = 'popup-container';
+        popupContainer.className = 'popup-container';
+        document.body.appendChild(popupContainer);
+    }
+    
+    popupContainer.innerHTML = '';
+    
+    const popupContent = document.createElement('div');
+    popupContent.className = 'popup-content';
+    
+    popupContent.innerHTML = `
+        <div class="popup-header">
+            <h3>随机历史记录</h3>
+            <button class="popup-close">&times;</button>
+        </div>
+        <div class="popup-body">
+            <div style="margin-bottom: 16px; font-size: 0.9rem; color: rgba(0,0,0,0.6);">
+                当前模式: ${getModeName(randomRoamManager.getCurrentMode())}
+            </div>
+            <div style="max-height: 400px; overflow-y: auto;">
+                ${history.length === 0 ? `
+                    <div class="empty-state">
+                        <h5>暂无随机历史</h5>
+                        <p>开始随机漫游后将显示历史记录</p>
+                    </div>
+                ` : history.map((item, index) => `
+                    <div class="popup-site-item" style="margin-bottom: 12px; padding: 16px; background: ${index === 0 ? 'rgba(102, 126, 234, 0.05)' : 'rgba(255,255,255,0.5)'};">
+                        <div class="popup-site-info">
+                            <div style="
+                                width: 28px;
+                                height: 28px;
+                                border-radius: 50%;
+                                background: ${index === 0 ? 'linear-gradient(135deg, #667eea, #764ba2)' : 'rgba(0,0,0,0.1)'};
+                                display: flex;
+                                align-items: center;
+                                justify-content: center;
+                                font-size: 0.75rem;
+                                font-weight: 600;
+                                color: ${index === 0 ? 'white' : 'rgba(0,0,0,0.8)'};
+                                flex-shrink: 0;
+                            ">
+                                ${history.length - index}
+                            </div>
+                            <div class="popup-site-details">
+                                <div class="popup-site-name">${item.name || '未命名'} ${index === 0 ? '<span style="font-size: 0.7rem; color: #667eea; margin-left: 8px;">最新</span>' : ''}</div>
+                                <div class="popup-site-url" style="font-size: 0.75rem; color: rgba(0,0,0,0.6);">
+                                    ${item.url}
+                                </div>
+                                <div style="font-size: 0.7rem; color: rgba(0,0,0,0.4); margin-top: 4px;">
+                                    ${new Date(item.timestamp).toLocaleString('zh-CN')} · ${getModeName(item.mode)}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `).join('')}
+            </div>
+        </div>
+    `;
+    
+    popupContainer.appendChild(popupContent);
+    popupContainer.classList.add('show');
+    popupContent.classList.add('show');
+
+    const closeBtn = popupContent.querySelector('.popup-close');
+    if (closeBtn) {
+        closeBtn.addEventListener('click', () => {
+            popupContainer.classList.remove('show');
+            setTimeout(() => {
+                popupContainer.innerHTML = '';
+            }, 300);
+        });
+    }
+
+    popupContainer.addEventListener('click', (e) => {
+        if (e.target === popupContainer) {
+            popupContainer.classList.remove('show');
+            setTimeout(() => {
+                popupContainer.innerHTML = '';
+            }, 300);
+        }
+    });
+}
+
+function showLogsPopup() {
+    const logManager = new OperationLogManager();
+    
+    let popupContainer = document.getElementById('popup-container');
+    if (!popupContainer) {
+        popupContainer = document.createElement('div');
+        popupContainer.id = 'popup-container';
+        popupContainer.className = 'popup-container';
+        document.body.appendChild(popupContainer);
+    }
+    
+    popupContainer.innerHTML = '';
+    
+    const popupContent = document.createElement('div');
+    popupContent.className = 'popup-content';
+    popupContent.style.maxWidth = '800px';
+    
+    logManager.getAllLogs().then(logs => {
+        popupContent.innerHTML = `
+            <div class="popup-header">
+                <h3>操作日志</h3>
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <button id="export-logs-btn" class="btn btn-secondary btn-sm">导出日志</button>
+                    <button id="clear-logs-btn" class="btn btn-danger btn-sm">清空日志</button>
+                    <button class="popup-close">&times;</button>
+                </div>
+            </div>
+            <div class="popup-body">
+                <div style="margin-bottom: 16px; font-size: 0.9rem; color: rgba(0,0,0,0.6);">
+                    共 ${logs.length} 条记录
+                </div>
+                <div style="max-height: 500px; overflow-y: auto;">
+                    ${logs.length === 0 ? `
+                        <div class="empty-state">
+                            <h5>暂无操作日志</h5>
+                            <p>操作日志将记录您的所有操作</p>
+                        </div>
+                    ` : logs.map(log => `
+                        <div class="popup-site-item" style="margin-bottom: 8px; padding: 12px; font-size: 0.85rem;">
+                            <div style="display: flex; justify-content: space-between; align-items: start; width: 100%;">
+                                <div>
+                                    <div style="font-weight: 600; color: ${getLogColor(log.action)};">${getActionName(log.action)}</div>
+                                    <div style="font-size: 0.75rem; color: rgba(0,0,0,0.6); margin-top: 4px;">
+                                        ${log.details ? JSON.stringify(log.details) : ''}
+                                    </div>
+                                </div>
+                                <div style="font-size: 0.7rem; color: rgba(0,0,0,0.4); white-space: nowrap; margin-left: 16px;">
+                                    ${new Date(log.timestamp).toLocaleString('zh-CN')}
+                                </div>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        `;
+
+        const exportBtn = popupContent.querySelector('#export-logs-btn');
+        if (exportBtn) {
+            exportBtn.addEventListener('click', async () => {
+                const logData = await logManager.exportLogs();
+                const blob = new Blob([JSON.stringify(logData, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `operation-logs-${new Date().toISOString().split('T')[0]}.json`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                showMessage('日志导出成功');
+            });
+        }
+
+        const clearBtn = popupContent.querySelector('#clear-logs-btn');
+        if (clearBtn) {
+            clearBtn.addEventListener('click', () => {
+                showConfirmDialog('清空日志', '确定要清空所有操作日志吗？此操作不可恢复。', async () => {
+                    await logManager.clearLogs();
+                    showMessage('日志已清空');
+                    popupContainer.classList.remove('show');
+                    setTimeout(() => {
+                        showLogsPopup();
+                    }, 100);
+                });
+            });
+        }
+    });
+    
+    popupContainer.appendChild(popupContent);
+    popupContainer.classList.add('show');
+    popupContent.classList.add('show');
+
+    setTimeout(() => {
+        const closeBtn = popupContent.querySelector('.popup-close');
+        if (closeBtn) {
+            closeBtn.addEventListener('click', () => {
+                popupContainer.classList.remove('show');
+                setTimeout(() => {
+                    popupContainer.innerHTML = '';
+                }, 300);
+            });
+        }
+
+        popupContainer.addEventListener('click', (e) => {
+            if (e.target === popupContainer) {
+                popupContainer.classList.remove('show');
+                setTimeout(() => {
+                    popupContainer.innerHTML = '';
+                }, 300);
+            }
+        });
+    }, 100);
+}
+
+function getModeName(mode) {
+    switch (mode) {
+        case RandomMode.BOOKMARK_ONLY:
+            return '纯书签随机';
+        case RandomMode.CUSTOM_LIST:
+            return '自定义列表随机';
+        case RandomMode.MIXED:
+        default:
+            return '混合随机';
+    }
+}
+
+function getActionName(action) {
+    const actionNames = {
+        'mode_change': '模式切换',
+        'scenario_based_mode': '场景智能匹配',
+        'add_to_custom_list': '添加到自定义列表',
+        'remove_from_custom_list': '从自定义列表移除',
+        'add_to_blacklist': '添加到黑名单',
+        'remove_from_blacklist': '从黑名单移除',
+        'random_selection': '随机选择'
+    };
+    return actionNames[action] || action;
+}
+
+function getLogColor(action) {
+    if (action.includes('error') || action.includes('delete') || action.includes('remove')) {
+        return '#ef4444';
+    } else if (action.includes('add') || action.includes('create')) {
+        return '#10b981';
+    } else if (action.includes('change') || action.includes('update')) {
+        return '#f59e0b';
+    }
+    return '#3b82f6';
+}
+
+// 重写导出/导入配置函数
+const originalExportConfig = exportConfig;
+exportConfig = async function() {
+    try {
+        const config = await SecureStorage.exportAllConfig();
+        
+        const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `QidoBloom-Config-${new Date().toISOString().split('T')[0]}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        showMessage('配置导出成功（已加密）！');
+        
+        if (logManager) {
+            await logManager.logAction('export_config', { success: true });
+        }
+    } catch (error) {
+        console.error('Export config error:', error);
+        showMessage('配置导出失败：' + error.message, 'error');
+        
+        if (logManager) {
+            await logManager.logAction('export_config', { success: false, error: error.message });
+        }
+    }
+};
+
+const originalImportConfig = importConfig;
+importConfig = function() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'application/json';
+    
+    input.onchange = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        try {
+            const text = await file.text();
+            const config = JSON.parse(text);
+
+            showConfirmDialog('导入配置', '导入配置将覆盖当前设置，确定要继续吗？', async () => {
+                try {
+                    await SecureStorage.importAllConfig(config);
+                    
+                    showMessage('配置导入成功！页面将自动刷新。');
+                    
+                    if (logManager) {
+                        await logManager.logAction('import_config', { success: true });
+                    }
+                    
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 1000);
+                } catch (error) {
+                    console.error('Import config error:', error);
+                    showMessage('配置导入失败：' + error.message, 'error');
+                    
+                    if (logManager) {
+                        await logManager.logAction('import_config', { success: false, error: error.message });
+                    }
+                }
+            });
+        } catch (error) {
+            console.error('Import config error:', error);
+            showMessage('配置文件格式不正确：' + error.message, 'error');
+        }
+    };
+
+    input.click();
+};
+
+document.addEventListener('DOMContentLoaded', function() {
+    setTimeout(() => {
+        initEnhancedFeatures();
+    }, 200);
+});
