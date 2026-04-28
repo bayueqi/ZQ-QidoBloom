@@ -547,12 +547,12 @@ body.clicked-outside .manage-dropdown-menu {
     top: 0;
     right: 100%;
     margin-right: 8px;
-    background: rgba(255, 255, 255, 0.95);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    border: 1px solid rgba(0, 0, 0, 0.1);
+    background: rgba(255, 255, 255, 0.2);
+    backdrop-filter: blur(25px);
+    -webkit-backdrop-filter: blur(25px);
+    border: 1px solid rgba(255, 255, 255, 0.3);
     border-radius: 15px;
-    box-shadow: -15px 0 35px rgba(0, 0, 0, 0.25);
+    box-shadow: -15px 0 35px rgba(0, 0, 0, 0.15);
     z-index: 2000;
     opacity: 0;
     visibility: hidden;
@@ -577,8 +577,7 @@ body.clicked-outside .manage-dropdown-menu {
 }
 
 .engine-option:hover {
-    background: linear-gradient(135deg, rgba(102, 126, 234, 0.15) 0%, rgba(118, 75, 162, 0.12) 100%);
-    color: #667eea;
+    color: rgba(0, 0, 0, 0.9);
     transform: translateX(5px);
 }
 
@@ -648,7 +647,7 @@ body.clicked-outside .manage-dropdown-menu {
     background: rgba(200, 200, 200, 0.15);
     border-radius: 16px;
     padding: 20px;
-    backdrop-filter: blur(10px);
+    backdrop-filter: blur(7px);
     border: 1px solid rgba(200, 200, 200, 0.2);
     transition: all 0.3s ease;
     cursor: grab;
@@ -678,7 +677,7 @@ body.clicked-outside .manage-dropdown-menu {
     font-size: 1rem;
     font-weight: 600;
     margin-bottom: 15px;
-    color: rgba(100, 100, 100, 0.8);
+    color: rgba(0, 0, 0, 0.9);
     text-align: left;
 }
 
@@ -689,6 +688,8 @@ body.clicked-outside .manage-dropdown-menu {
 }
 
 .shortcut-item {
+    position: relative;
+    overflow: hidden;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -699,6 +700,35 @@ body.clicked-outside .manage-dropdown-menu {
     transition: all 0.3s ease;
     background: rgba(255, 255, 255, 0.05);
     cursor: pointer;
+}
+
+.shortcut-item::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(
+        90deg,
+        transparent,
+        rgba(255, 255, 255, 0.4),
+        transparent
+    );
+    pointer-events: none;
+}
+
+.shortcut-item:hover::before {
+    animation: shine 0.6s ease;
+}
+
+@keyframes shine {
+    0% {
+        left: -100%;
+    }
+    100% {
+        left: 100%;
+    }
 }
 
 .shortcut-item:hover {
