@@ -1138,6 +1138,10 @@ window.addEventListener('DOMContentLoaded', async function() {
     await renderShortcuts();
     await applyWallpaper();
     
+    setTimeout(() => {
+        initEnhancedFeatures();
+    }, 200);
+    
     // 添加页面加载动画
     document.body.style.opacity = '0';
     setTimeout(() => {
@@ -3217,9 +3221,9 @@ class RandomRoamManager {
         this.maxHistorySize = 50;
     }
 
-    async loadSettings() {
+    loadSettings() {
         try {
-            const savedSettings = await SecureStorage.getItem('randomRoamSettings');
+            const savedSettings = SecureStorage.getItem('randomRoamSettings');
             if (savedSettings) {
                 const settings = JSON.parse(savedSettings);
                 this.currentMode = settings.currentMode || RandomMode.MIXED;
@@ -3232,7 +3236,7 @@ class RandomRoamManager {
         }
     }
 
-    async saveSettings() {
+    saveSettings() {
         try {
             const settings = {
                 currentMode: this.currentMode,
@@ -3240,7 +3244,7 @@ class RandomRoamManager {
                 blacklist: this.blacklist,
                 lastRandomTime: this.lastRandomTime ? this.lastRandomTime.toISOString() : null
             };
-            await SecureStorage.setItem('randomRoamSettings', JSON.stringify(settings));
+            SecureStorage.setItem('randomRoamSettings', JSON.stringify(settings));
         } catch (error) {
             console.error('Save random roam settings error:', error);
         }
@@ -3285,60 +3289,60 @@ class RandomRoamManager {
         }
     }
 
-    async setMode(mode) {
+    setMode(mode) {
         this.currentMode = mode;
-        await this.saveSettings();
-        await this.logAction('mode_change', { mode: mode });
+        this.saveSettings();
+        this.logAction('mode_change', { mode: mode });
     }
 
-    async setScenarioBasedMode() {
+    setScenarioBasedMode() {
         const scenario = this.detectCurrentScenario();
         this.currentScenario = scenario;
         const optimalMode = this.getOptimalModeForScenario(scenario);
         this.currentMode = optimalMode;
-        await this.saveSettings();
-        await this.logAction('scenario_based_mode', { 
+        this.saveSettings();
+        this.logAction('scenario_based_mode', { 
             scenario: scenario, 
             mode: optimalMode 
         });
         return { scenario, mode: optimalMode };
     }
 
-    async addToCustomList(site) {
+    addToCustomList(site) {
         if (!this.customList.find(s => s.url === site.url)) {
             this.customList.push({
                 id: Date.now().toString(),
                 ...site,
                 addedAt: new Date().toISOString()
             });
-            await this.saveSettings();
-            await this.logAction('add_to_custom_list', { site: site.name || site.url });
+            this.saveSettings();
+            this.logAction('add_to_custom_list', { site: site.name || site.url });
         }
     }
 
-    async removeFromCustomList(id) {
+    removeFromCustomList(id) {
         const index = this.customList.findIndex(s => s.id === id);
         if (index > -1) {
             const removed = this.customList.splice(index, 1)[0];
-            await this.saveSettings();
-            await this.logAction('remove_from_custom_list', { site: removed.name || removed.url });
+            this.saveSettings();
+            this.logAction('remove_from_custom_list', { site: removed.name || removed.url });
         }
     }
 
-    async addToBlacklist(url) {
+    addToBlacklist(url) {
         if (!this.blacklist.includes(url)) {
             this.blacklist.push(url);
-            await this.saveSettings();
-            await this.logAction('add_to_blacklist', { url: url });
+            this.saveSettings();
+            this.logAction('add_to_blacklist', { url: url });
         }
     }
 
-    async removeFromBlacklist(url) {
+    removeFromBlacklist(url) {
         const index = this.blacklist.indexOf(url);
         if (index > -1) {
             this.blacklist.splice(index, 1);
-            await this.saveSettings();
-            await this.logAction('remove_from_blacklist', { url: url });
+            this.saveSettings();
+            this.logAction('remove_from_blacklist', { url: url });
         }
     }
 
@@ -3348,10 +3352,10 @@ class RandomRoamManager {
         );
     }
 
-    async getAllAvailableSites() {
+    getAllAvailableSites() {
         const allSites = [];
         
-        const shortcutsData = await loadShortcutsData();
+        const shortcutsData = loadShortcutsData();
         if (shortcutsData && shortcutsData.groups) {
             shortcutsData.groups.forEach(group => {
                 if (group.sites) {
@@ -3380,8 +3384,8 @@ class RandomRoamManager {
         return allSites;
     }
 
-    async getRandomSite() {
-        const allSites = await this.getAllAvailableSites();
+    getRandomSite() {
+        const allSites = this.getAllAvailableSites();
         
         if (allSites.length === 0) {
             return null;
@@ -3426,8 +3430,8 @@ class RandomRoamManager {
             this.randomHistory = this.randomHistory.slice(-this.maxHistorySize);
         }
 
-        await this.saveSettings();
-        await this.logAction('random_selection', { 
+        this.saveSettings();
+        this.logAction('random_selection', { 
             site: selectedSite.name || selectedSite.url,
             mode: this.currentMode
         });
@@ -3435,7 +3439,7 @@ class RandomRoamManager {
         return selectedSite;
     }
 
-    async logAction(action, details) {
+    logAction(action, details) {
         const logEntry = {
             id: Date.now().toString(),
             timestamp: new Date().toISOString(),
@@ -3445,7 +3449,7 @@ class RandomRoamManager {
 
         try {
             let logs = [];
-            const savedLogs = await SecureStorage.getItem('operationLogs');
+            const savedLogs = SecureStorage.getItem('operationLogs');
             if (savedLogs) {
                 logs = JSON.parse(savedLogs);
             }
@@ -3455,7 +3459,7 @@ class RandomRoamManager {
                 logs = logs.slice(0, 500);
             }
 
-            await SecureStorage.setItem('operationLogs', JSON.stringify(logs));
+            SecureStorage.setItem('operationLogs', JSON.stringify(logs));
         } catch (error) {
             console.error('Log action error:', error);
         }
@@ -3539,7 +3543,7 @@ const SecureStorage = {
         }
     },
 
-    async setItem(key, value) {
+    setItem(key, value) {
         try {
             if (!this.encryptionKey) {
                 this.generateKey();
@@ -3558,7 +3562,7 @@ const SecureStorage = {
         }
     },
 
-    async getItem(key) {
+    getItem(key) {
         try {
             if (!this.encryptionKey) {
                 this.generateKey();
@@ -3635,15 +3639,15 @@ const SecureStorage = {
         return null;
     },
 
-    async exportAllConfig() {
+    exportAllConfig() {
         try {
             const config = {
                 version: '2.0',
                 exportTime: new Date().toISOString(),
                 
-                shortcuts: await loadShortcutsData(),
+                shortcuts: loadShortcutsData(),
                 
-                searchEngines: await loadSearchEngines(),
+                searchEngines: loadSearchEngines(),
                 
                 wallpaper: localStorage.getItem('startpage-data') ? 
                     JSON.parse(localStorage.getItem('startpage-data')).wallpaper : 'white',
@@ -3651,11 +3655,11 @@ const SecureStorage = {
                 faviconApi: localStorage.getItem('startpage-faviconapi') ? 
                     JSON.parse(localStorage.getItem('startpage-faviconapi')) : null,
                 
-                randomRoamSettings: await SecureStorage.getItem('randomRoamSettings') ? 
-                    JSON.parse(await SecureStorage.getItem('randomRoamSettings')) : null,
+                randomRoamSettings: SecureStorage.getItem('randomRoamSettings') ? 
+                    JSON.parse(SecureStorage.getItem('randomRoamSettings')) : null,
                 
-                operationLogs: await SecureStorage.getItem('operationLogs') ? 
-                    JSON.parse(await SecureStorage.getItem('operationLogs')) : null
+                operationLogs: SecureStorage.getItem('operationLogs') ? 
+                    JSON.parse(SecureStorage.getItem('operationLogs')) : null
             };
 
             return config;
@@ -3665,7 +3669,7 @@ const SecureStorage = {
         }
     },
 
-    async importAllConfig(config) {
+    importAllConfig(config) {
         try {
             if (config.shortcuts) {
                 localStorage.setItem('startpage-data', JSON.stringify({
@@ -3684,11 +3688,11 @@ const SecureStorage = {
             }
 
             if (config.randomRoamSettings) {
-                await SecureStorage.setItem('randomRoamSettings', JSON.stringify(config.randomRoamSettings));
+                SecureStorage.setItem('randomRoamSettings', JSON.stringify(config.randomRoamSettings));
             }
 
             if (config.operationLogs) {
-                await SecureStorage.setItem('operationLogs', JSON.stringify(config.operationLogs));
+                SecureStorage.setItem('operationLogs', JSON.stringify(config.operationLogs));
             }
 
             return true;
@@ -3708,9 +3712,9 @@ class OperationLogManager {
         this.maxLogs = 500;
     }
 
-    async getAllLogs() {
+    getAllLogs() {
         try {
-            const logsStr = await SecureStorage.getItem('operationLogs');
+            const logsStr = SecureStorage.getItem('operationLogs');
             if (logsStr) {
                 return JSON.parse(logsStr);
             }
@@ -3720,22 +3724,22 @@ class OperationLogManager {
         return [];
     }
 
-    async getLogsByType(actionType) {
-        const logs = await this.getAllLogs();
+    getLogsByType(actionType) {
+        const logs = this.getAllLogs();
         return logs.filter(log => log.action === actionType);
     }
 
-    async getLogsByDateRange(startDate, endDate) {
-        const logs = await this.getAllLogs();
+    getLogsByDateRange(startDate, endDate) {
+        const logs = this.getAllLogs();
         return logs.filter(log => {
             const logDate = new Date(log.timestamp);
             return logDate >= startDate && logDate <= endDate;
         });
     }
 
-    async clearLogs() {
+    clearLogs() {
         try {
-            await SecureStorage.setItem('operationLogs', JSON.stringify([]));
+            SecureStorage.setItem('operationLogs', JSON.stringify([]));
             return true;
         } catch (error) {
             console.error('Clear logs error:', error);
@@ -3743,8 +3747,8 @@ class OperationLogManager {
         }
     }
 
-    async exportLogs() {
-        const logs = await this.getAllLogs();
+    exportLogs() {
+        const logs = this.getAllLogs();
         return {
             version: '1.0',
             exportTime: new Date().toISOString(),
@@ -3876,14 +3880,14 @@ function addRandomRoamButton() {
     });
 
     roamDropdown.querySelectorAll('.dropdown-item').forEach(item => {
-        item.addEventListener('click', async function(e) {
+        item.addEventListener('click', function(e) {
             e.preventDefault();
             const action = this.dataset.action;
             roamDropdown.classList.remove('show');
 
             switch (action) {
                 case 'random-now':
-                    const site = await randomRoamManager.getRandomSite();
+                    const site = randomRoamManager.getRandomSite();
                     if (site) {
                         showMessage(`随机选中: ${site.name || site.url}`);
                         setTimeout(() => {
@@ -3895,17 +3899,17 @@ function addRandomRoamButton() {
                     break;
 
                 case 'mode-bookmark':
-                    await randomRoamManager.setMode(RandomMode.BOOKMARK_ONLY);
+                    randomRoamManager.setMode(RandomMode.BOOKMARK_ONLY);
                     showMessage('已切换到纯书签随机模式');
                     break;
 
                 case 'mode-custom':
-                    await randomRoamManager.setMode(RandomMode.CUSTOM_LIST);
+                    randomRoamManager.setMode(RandomMode.CUSTOM_LIST);
                     showMessage('已切换到自定义列表随机模式');
                     break;
 
                 case 'mode-mixed':
-                    await randomRoamManager.setMode(RandomMode.MIXED);
+                    randomRoamManager.setMode(RandomMode.MIXED);
                     showMessage('已切换到混合随机模式');
                     break;
 
@@ -4007,9 +4011,9 @@ function showCustomListPopup() {
     }
 
     popupContent.querySelectorAll('.remove-custom-site').forEach(btn => {
-        btn.addEventListener('click', async function() {
+        btn.addEventListener('click', function() {
             const id = this.dataset.id;
-            await randomRoamManager.removeFromCustomList(id);
+            randomRoamManager.removeFromCustomList(id);
             showMessage('已从自定义列表中删除');
             const siteItem = this.closest('.popup-site-item');
             if (siteItem) {
@@ -4095,7 +4099,7 @@ function showAddCustomSitePopup() {
     });
 
     const confirmBtn = addPopup.querySelector('#confirm-add-custom');
-    confirmBtn.addEventListener('click', async () => {
+    confirmBtn.addEventListener('click', () => {
         const name = document.getElementById('custom-site-name').value.trim();
         const url = document.getElementById('custom-site-url').value.trim();
 
@@ -4104,7 +4108,7 @@ function showAddCustomSitePopup() {
             return;
         }
 
-        await randomRoamManager.addToCustomList({
+        randomRoamManager.addToCustomList({
             name: name,
             url: url
         });
@@ -4282,8 +4286,8 @@ function showLogsPopup() {
 
         const exportBtn = popupContent.querySelector('#export-logs-btn');
         if (exportBtn) {
-            exportBtn.addEventListener('click', async () => {
-                const logData = await logManager.exportLogs();
+            exportBtn.addEventListener('click', () => {
+                const logData = logManager.exportLogs();
                 const blob = new Blob([JSON.stringify(logData, null, 2)], { type: 'application/json' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
@@ -4300,8 +4304,8 @@ function showLogsPopup() {
         const clearBtn = popupContent.querySelector('#clear-logs-btn');
         if (clearBtn) {
             clearBtn.addEventListener('click', () => {
-                showConfirmDialog('清空日志', '确定要清空所有操作日志吗？此操作不可恢复。', async () => {
-                    await logManager.clearLogs();
+                showConfirmDialog('清空日志', '确定要清空所有操作日志吗？此操作不可恢复。', () => {
+                    logManager.clearLogs();
                     showMessage('日志已清空');
                     popupContainer.classList.remove('show');
                     setTimeout(() => {
@@ -4376,9 +4380,9 @@ function getLogColor(action) {
 
 // 重写导出/导入配置函数
 const originalExportConfig = exportConfig;
-exportConfig = async function() {
+exportConfig = function() {
     try {
-        const config = await SecureStorage.exportAllConfig();
+        const config = SecureStorage.exportAllConfig();
         
         const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
@@ -4392,15 +4396,15 @@ exportConfig = async function() {
 
         showMessage('配置导出成功（已加密）！');
         
-        if (logManager) {
-            await logManager.logAction('export_config', { success: true });
+        if (randomRoamManager) {
+            randomRoamManager.logAction('export_config', { success: true });
         }
     } catch (error) {
         console.error('Export config error:', error);
         showMessage('配置导出失败：' + error.message, 'error');
         
-        if (logManager) {
-            await logManager.logAction('export_config', { success: false, error: error.message });
+        if (randomRoamManager) {
+            randomRoamManager.logAction('export_config', { success: false, error: error.message });
         }
     }
 };
@@ -4419,14 +4423,14 @@ importConfig = function() {
             const text = await file.text();
             const config = JSON.parse(text);
 
-            showConfirmDialog('导入配置', '导入配置将覆盖当前设置，确定要继续吗？', async () => {
+            showConfirmDialog('导入配置', '导入配置将覆盖当前设置，确定要继续吗？', () => {
                 try {
-                    await SecureStorage.importAllConfig(config);
+                    SecureStorage.importAllConfig(config);
                     
                     showMessage('配置导入成功！页面将自动刷新。');
                     
-                    if (logManager) {
-                        await logManager.logAction('import_config', { success: true });
+                    if (randomRoamManager) {
+                        randomRoamManager.logAction('import_config', { success: true });
                     }
                     
                     setTimeout(() => {
@@ -4436,8 +4440,8 @@ importConfig = function() {
                     console.error('Import config error:', error);
                     showMessage('配置导入失败：' + error.message, 'error');
                     
-                    if (logManager) {
-                        await logManager.logAction('import_config', { success: false, error: error.message });
+                    if (randomRoamManager) {
+                        randomRoamManager.logAction('import_config', { success: false, error: error.message });
                     }
                 }
             });
@@ -4449,9 +4453,3 @@ importConfig = function() {
 
     input.click();
 };
-
-document.addEventListener('DOMContentLoaded', function() {
-    setTimeout(() => {
-        initEnhancedFeatures();
-    }, 200);
-});
