@@ -116,45 +116,6 @@ body {
     stroke: #000000;
 }
 
-/* 用户按钮容器 */
-.user-dropdown {
-    position: relative;
-}
-
-/* 用户下拉菜单 */
-.user-dropdown-menu {
-    position: absolute;
-    top: 50%;
-    right: 100%;
-    transform: translateY(-50%);
-    margin-right: 12px;
-    background: rgba(255, 255, 255, 0.8);
-    border: 1px solid rgba(255, 255, 255, 0.3);
-    border-radius: 12px;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    min-width: 200px;
-    z-index: 999;
-    opacity: 0;
-    visibility: hidden;
-    transform: translateY(-50%) translateX(-20px);
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.user-dropdown-menu.show {
-    opacity: 1;
-    visibility: visible;
-    transform: translateY(-50%) translateX(0);
-}
-
-/* 用户信息项 */
-.user-info-item {
-    padding: 12px 16px;
-    font-weight: 500;
-    color: #000000;
-}
-
 /* 管理下拉菜单 */
 .manage-dropdown {
     position: relative;
@@ -210,20 +171,6 @@ body {
 
 .dropdown-item svg {
     flex-shrink: 0;
-}
-
-/* 分隔线样式 */
-.dropdown-divider {
-    height: 1px;
-    background: rgba(0, 0, 0, 0.1);
-    margin: 4px 16px;
-}
-
-/* 点击外部关闭下拉菜单 */
-body.clicked-outside .manage-dropdown-menu {
-    opacity: 0;
-    visibility: hidden;
-    transform: translateY(-10px);
 }
 
 /* 弹出界面样式 */
@@ -333,13 +280,6 @@ body.clicked-outside .manage-dropdown-menu {
     padding: 24px;
 }
 
-/* 弹出界面表单 */
-.popup-form {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-}
-
 .form-group {
     display: flex;
     flex-direction: column;
@@ -418,11 +358,6 @@ body.clicked-outside .manage-dropdown-menu {
     box-shadow: 0 6px 20px rgba(220, 38, 38, 0.2);
 }
 
-.btn-sm {
-    padding: 6px 12px;
-    font-size: 0.85rem;
-}
-
 /* 响应式调整 */
 @media (max-width: 768px) {
     .popup-content {
@@ -444,12 +379,6 @@ body.clicked-outside .manage-dropdown-menu {
     margin-top: 40px;
     padding-top: 20px;
     border-top: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.footer-content {
-    display: flex;
-    justify-content: center;
-    align-items: center;
 }
 
 /* 时间和日期样式 */
@@ -754,9 +683,11 @@ body.clicked-outside .manage-dropdown-menu {
     }
 }
 
+/* 悬停位移完全交给 CSS（原来是用 JS 逐元素 setAttribute 内联样式，
+   每次 hover 都要改一次行内样式并触发重算），-5px 与原先 JS 设的值保持一致 */
 .shortcut-item:hover {
     background: rgba(255, 255, 255, 0.1);
-    transform: translateY(-3px);
+    transform: translateY(-5px);
     box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
 }
 
@@ -796,44 +727,12 @@ body.clicked-outside .manage-dropdown-menu {
     margin-top: 5px;
 }
 
-/* 页脚样式 */
-.footer {
-    margin-top: 40px;
-    padding-top: 20px;
-    border-top: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.footer-content {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
-
 .footer p {
     font-size: 0.85rem;
     color: rgba(255, 255, 255, 0.5);
 }
 
 
-
-/* 空状态样式 */
-.empty-state {
-    text-align: center;
-    padding: 40px 20px;
-    color: rgba(255, 255, 255, 0.5);
-}
-
-.empty-state h3 {
-    margin-bottom: 10px;
-    font-size: 1.1rem;
-    font-weight: 500;
-    color: rgba(255, 255, 255, 0.7);
-}
-
-.empty-state p {
-    font-size: 0.9rem;
-    margin-bottom: 20px;
-}
 
 /* 动画效果 */
 @keyframes blueGlow {
@@ -866,10 +765,6 @@ body.clicked-outside .manage-dropdown-menu {
         font-size: 1rem;
     }
     
-    .search-form {
-        max-width: 100%;
-    }
-    
     .shortcuts {
         grid-template-columns: 1fr;
     }
@@ -891,4 +786,499 @@ body.clicked-outside .manage-dropdown-menu {
     .shortcut-items {
         grid-template-columns: repeat(2, 1fr);
     }
+}
+
+
+/* ============================================================
+ * 弹窗（分组 / 壁纸 / 搜索引擎 / 设置 / 图标来源）样式
+ * 原先这段 CSS 是 script.js 运行时 document.createElement('style')
+ * 注入的，既让 JS 那份多背 10KB，又每次开新标签页要重算一次样式。
+ * 现按原顺序并入本文件（必须放在最后，靠后的同权重规则优先级不变）。
+ * ============================================================ */
+/* 分组管理弹出界面样式 */
+.groups-management {
+    width: 100%;
+}
+
+.section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+}
+
+.section-header h4 {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+    color: #000000;
+}
+
+.popup-groups-container {
+    max-height: 400px;
+    min-height: 220px;
+    overflow-y: auto;
+}
+
+.empty-state {
+    text-align: center;
+    padding: 24px;
+    background: rgba(0, 0, 0, 0.02);
+    border-radius: 8px;
+    margin: 8px 0;
+}
+
+.empty-state h5 {
+    margin: 0 0 8px 0;
+    font-size: 0.9rem;
+    color: #000000;
+}
+
+.empty-state p {
+    margin: 0;
+    font-size: 0.8rem;
+    color: rgba(0, 0, 0, 0.6);
+}
+
+.popup-group-card {
+    background: rgba(0, 0, 0, 0.02);
+    border-radius: 8px;
+}
+
+.popup-group-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.popup-group-header h5 {
+    margin: 0;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #000000;
+}
+
+.popup-group-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.btn-sm {
+    padding: 6px 12px;
+    font-size: 0.8rem;
+}
+
+.popup-sites-list {
+    margin-top: 12px;
+}
+
+.popup-site-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px;
+    background: rgba(255, 255, 255, 0.8);
+    border-radius: 6px;
+    margin-bottom: 8px;
+}
+
+.popup-site-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.popup-site-info {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.popup-site-icon {
+    width: 24px;
+    height: 24px;
+    border-radius: 4px;
+    background: rgba(0, 0, 0, 0.1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+.popup-site-details {
+    flex: 1;
+    min-width: 0;
+}
+
+.popup-site-name {
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: #000000;
+    margin-bottom: 2px;
+}
+
+.popup-site-url {
+    font-size: 0.7rem;
+    color: rgba(0, 0, 0, 0.6);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* 搜索引擎管理样式 */
+.search-engines-management {
+    width: 100%;
+}
+
+.engines-list {
+    margin-bottom: 20px;
+}
+
+.engines-list h4 {
+    margin: 0 0 12px 0;
+    font-size: 1rem;
+    font-weight: 600;
+    color: #000000;
+}
+
+.engine-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px;
+    background: rgba(255, 255, 255, 0.8);
+    border-radius: 8px;
+    margin-bottom: 8px;
+}
+
+.engine-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.engine-name {
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: #000000;
+    margin-bottom: 4px;
+}
+
+.engine-url {
+    font-size: 0.75rem;
+    color: rgba(0, 0, 0, 0.6);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.engine-actions {
+    display: flex;
+    gap: 8px;
+}
+
+/* 壁纸设置样式 */
+.wallpaper-management {
+    width: 100%;
+}
+
+.wallpaper-section {
+    margin-bottom: 32px;
+}
+
+.wallpaper-section h4 {
+    margin: 0 0 16px 0;
+    font-size: 1rem;
+    font-weight: 600;
+    color: #000000;
+}
+
+.wallpaper-section h5 {
+    margin: 0 0 12px 0;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #000000;
+}
+
+.upload-option {
+    margin-bottom: 20px;
+    padding: 16px;
+    background: rgba(0, 0, 0, 0.02);
+    border-radius: 8px;
+}
+
+.wallpaper-previews {
+    display: flex;
+    gap: 12px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 4px;
+    scroll-behavior: smooth;
+}
+
+.wallpaper-previews::-webkit-scrollbar {
+    height: 6px;
+}
+
+.wallpaper-previews::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.05);
+    border-radius: 3px;
+}
+
+.wallpaper-previews::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 3px;
+}
+
+.wallpaper-previews::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 0, 0, 0.3);
+}
+
+.wallpaper-preview {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    cursor: pointer;
+    padding: 8px;
+    border-radius: 8px;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+    min-width: 100px;
+}
+
+.wallpaper-preview:hover {
+    background: rgba(0, 0, 0, 0.05);
+    transform: translateY(-2px);
+}
+
+.wallpaper-preview.selected {
+    background: rgba(0, 0, 0, 0.1);
+    border: 2px solid rgba(0, 0, 0, 0.2);
+}
+
+.wallpaper-thumbnail {
+    width: 80px;
+    height: 60px;
+    border-radius: 6px;
+    margin-bottom: 8px;
+    transition: all 0.2s ease;
+}
+
+.wallpaper-thumbnail.white {
+    background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+}
+
+.wallpaper-preview span {
+    font-size: 0.8rem;
+    color: #000000;
+    text-align: center;
+}
+
+.upload-section {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.wallpaper-upload {
+    display: none;
+}
+
+.upload-hint {
+    margin: 0;
+    font-size: 0.8rem;
+    color: rgba(0, 0, 0, 0.6);
+}
+
+.url-section {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.url-section .form-control {
+    flex: 1;
+    min-width: 200px;
+}
+
+.url-wallpapers-list {
+    margin-top: 16px;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.url-wallpaper-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px;
+    background: rgba(0, 0, 0, 0.02);
+    border-radius: 6px;
+    margin-bottom: 8px;
+}
+
+.url-wallpaper-item:last-child {
+    margin-bottom: 0;
+}
+
+.url-wallpaper-thumbnail {
+    width: 60px;
+    height: 45px;
+    border-radius: 4px;
+    background-size: cover;
+    background-position: center;
+    flex-shrink: 0;
+}
+
+.url-wallpaper-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.url-wallpaper-url {
+    font-size: 0.75rem;
+    color: rgba(0, 0, 0, 0.8);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.url-wallpaper-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.url-wallpaper-btn {
+    padding: 4px 8px;
+    font-size: 0.75rem;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.url-wallpaper-btn.apply {
+    background: rgba(0, 0, 0, 0.1);
+    color: #000000;
+}
+
+.url-wallpaper-btn.apply:hover {
+    background: rgba(0, 0, 0, 0.2);
+}
+
+.url-wallpaper-btn.delete {
+    background: rgba(255, 0, 0, 0.1);
+    color: #ff0000;
+}
+
+.url-wallpaper-btn.delete:hover {
+    background: rgba(255, 0, 0, 0.2);
+}
+
+/* 模态框样式 */
+.modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(5px);
+    z-index: 2100;
+    align-items: center;
+    justify-content: center;
+}
+
+.modal-content {
+    background: rgba(255, 255, 255, 0.85);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-radius: 16px;
+    padding: 10px;
+    width: 90%;
+    max-width: 400px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    transform: translateY(50px) scale(0.98);
+    opacity: 0;
+    transition: transform 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94), opacity 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+.modal-show .modal-content {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+}
+
+.modal-hide .modal-content {
+    transform: translateY(50px) scale(0.98);
+    opacity: 0;
+}
+
+.modal-content h3 {
+    margin: 0 0 24px 0;
+    font-size: 1.3rem;
+    font-weight: 600;
+    color: #000000;
+    text-align: center;
+}
+
+.modal-buttons {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    margin-top: 24px;
+}
+
+.wallpaper-delete-btn {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 24px;
+    height: 24px;
+    border: none;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.6);
+    color: #ffffff;
+    font-size: 16px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: all 0.2s ease;
+    z-index: 10;
+}
+
+.wallpaper-preview:hover .wallpaper-delete-btn {
+    opacity: 1;
+}
+
+.wallpaper-delete-btn:hover {
+    background: rgba(220, 38, 38, 0.8);
+    transform: scale(1.1);
+}
+
+
+/* 图标尺寸：原来由 handleIconError() 逐个元素写内联样式（每次渲染 72 × 3 次），
+ * 改由 CSS 接管 —— 逻辑完全等价，但渲染时不再产生任何样式写入。 */
+.site-icon,
+.popup-site-icon-img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+
+/* 整页淡入：原来由 JS 在渲染完成后先切 opacity:0 再切 1，
+ * 结果是内容先露一下再消失再淡入（可见闪动），且白白等一帧定时器。
+ * 交给 CSS 后页面一开始渲染就启动动画，没有任何 JS 参与。 */
+@keyframes page-fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+body {
+    animation: page-fade-in 0.5s ease both;
 }

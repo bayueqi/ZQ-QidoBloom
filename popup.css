@@ -1,0 +1,283 @@
+/* 琪窦初开 · 扩展弹窗样式
+   沿用起始页的设计语言：白色磨砂、圆角、黑色主按钮 */
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+/* 作者样式里的 display 会盖掉 UA 的 [hidden]，所以显式兜一层 */
+[hidden] {
+    display: none !important;
+}
+
+body {
+    width: 340px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    font-size: 13px;
+    color: #1a1a1a;
+    background: #fbfbfd;
+}
+
+.pp {
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+/* 头部 */
+
+.pp-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.pp-logo {
+    width: 32px;
+    height: 32px;
+    flex: 0 0 32px;
+    border-radius: 50%;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.pp-logo img {
+    width: 100%;
+    height: 100%;
+    display: block;
+    object-fit: cover;
+}
+
+.pp-head-text h1 {
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.2;
+}
+
+.pp-head-text p {
+    margin-top: 2px;
+    font-size: 11px;
+    color: #8a8a8e;
+    max-width: 254px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* 提示条 */
+
+.pp-alert {
+    padding: 8px 10px;
+    border-radius: 8px;
+    font-size: 12px;
+    line-height: 1.5;
+    background: rgba(0, 0, 0, 0.05);
+    color: #3a3a3c;
+    border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.pp-alert.is-warn {
+    background: rgba(255, 149, 0, 0.12);
+    border-color: rgba(255, 149, 0, 0.25);
+    color: #8a5000;
+}
+
+.pp-alert.is-error {
+    background: rgba(255, 59, 48, 0.1);
+    border-color: rgba(255, 59, 48, 0.22);
+    color: #a3231c;
+}
+
+/* 当前页面卡片 */
+
+.pp-card {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px;
+    background: #fff;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    border-radius: 12px;
+}
+
+.pp-card.is-disabled {
+    opacity: 0.5;
+}
+
+.pp-icon {
+    width: 34px;
+    height: 34px;
+    flex: 0 0 34px;
+    border-radius: 9px;
+    background: rgba(0, 0, 0, 0.04);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+}
+
+.pp-icon img {
+    width: 22px;
+    height: 22px;
+    object-fit: contain;
+}
+
+.pp-icon span {
+    font-size: 14px;
+    font-weight: 600;
+    color: #6b6b70;
+}
+
+.pp-card-body {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.pp-url {
+    font-size: 11px;
+    color: #8a8a8e;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* 表单控件 */
+
+.pp-input {
+    width: 100%;
+    padding: 7px 9px;
+    font-size: 13px;
+    font-family: inherit;
+    color: #1a1a1a;
+    background: #fff;
+    border: 1px solid rgba(0, 0, 0, 0.12);
+    border-radius: 8px;
+    outline: none;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.pp-input:focus {
+    border-color: rgba(0, 0, 0, 0.35);
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.15);
+}
+
+.pp-card .pp-input {
+    padding: 3px 0;
+    border: none;
+    border-bottom: 1px solid transparent;
+    border-radius: 0;
+    font-weight: 600;
+    background: transparent;
+}
+
+.pp-card .pp-input:hover {
+    border-bottom-color: rgba(0, 0, 0, 0.12);
+}
+
+.pp-card .pp-input:focus {
+    box-shadow: none;
+    border-bottom-color: rgba(0, 0, 0, 0.35);
+}
+
+.pp-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.pp-label {
+    font-size: 11px;
+    font-weight: 500;
+    color: #6b6b70;
+}
+
+.pp-select {
+    width: 100%;
+    padding: 8px 9px;
+    font-size: 13px;
+    font-family: inherit;
+    color: #1a1a1a;
+    background: #fff;
+    border: 1px solid rgba(0, 0, 0, 0.12);
+    border-radius: 8px;
+    outline: none;
+    cursor: pointer;
+}
+
+.pp-select:focus {
+    border-color: rgba(0, 0, 0, 0.35);
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.15);
+}
+
+.pp-select:disabled {
+    color: #8a8a8e;
+    cursor: not-allowed;
+    background: rgba(0, 0, 0, 0.03);
+}
+
+/* 新建分组行 */
+
+.pp-newgroup {
+    display: flex;
+    gap: 6px;
+}
+
+.pp-newgroup .pp-input {
+    flex: 1 1 auto;
+}
+
+/* 底部按钮 */
+
+.pp-foot {
+    display: flex;
+    gap: 8px;
+}
+
+.pp-btn {
+    padding: 9px 12px;
+    font-size: 13px;
+    font-family: inherit;
+    font-weight: 500;
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: background 0.2s ease, transform 0.2s ease, opacity 0.2s ease;
+}
+
+.pp-btn-primary {
+    flex: 1 1 auto;
+    background: rgba(0, 0, 0, 0.9);
+    color: #fff;
+}
+
+.pp-btn-primary:hover:not(:disabled) {
+    background: rgba(0, 0, 0, 0.75);
+}
+
+.pp-btn-primary:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+.pp-btn-ghost {
+    flex: 0 0 auto;
+    background: rgba(255, 255, 255, 0.6);
+    color: #1a1a1a;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.pp-btn-ghost:hover {
+    background: #fff;
+}
+
+.pp-foot .pp-btn-ghost {
+    white-space: nowrap;
+}

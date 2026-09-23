@@ -27,10 +27,11 @@ class PopupDataManager {
     }
 
     // 初始化默认数据
+    // 注意：壁纸不在这里 —— 它已拆到独立的 startpage-wallpaper 键，
+    // 见 readWallpaperStore / writeWallpaperStore。
     initDefaultData() {
         this.data = {
-            groups: [],
-            wallpaper: 'white'
+            groups: []
         };
         this.saveData();
     }
@@ -228,64 +229,30 @@ class PopupWallpaperManager {
         this.uploadedWallpapers = [];
     }
 
-    // 加载当前壁纸
-    async loadCurrentWallpaper() {
-        try {
-            const savedData = localStorage.getItem('startpage-data');
-            if (savedData) {
-                const data = JSON.parse(savedData);
-                this.currentWallpaper = data.wallpaper || 'white';
-            }
-        } catch (error) {
-            console.error('Load wallpaper error:', error);
-            this.currentWallpaper = 'white';
-        }
-    }
-
-    // 加载所有已上传的壁纸
-    async loadUploadedWallpapers() {
-        try {
-            const savedData = localStorage.getItem('startpage-data');
-            if (savedData) {
-                const data = JSON.parse(savedData);
-                this.uploadedWallpapers = data.uploadedWallpapers || [];
-            }
-        } catch (error) {
-            console.error('Load uploaded wallpapers error:', error);
-            this.uploadedWallpapers = [];
-        }
+    // 加载壁纸设置。currentWallpaper 和已上传列表本来就存在同一个键里，
+    // 一次读完即可（原来分两个方法各读一遍同一个大 JSON）。
+    async loadAll() {
+        const store = readWallpaperStore();
+        this.currentWallpaper = store.current;
+        this.uploadedWallpapers = store.uploaded;
     }
 
     // 保存壁纸设置
     async saveWallpaper(wallpaper) {
-        try {
-            const savedData = localStorage.getItem('startpage-data');
-            let data = savedData ? JSON.parse(savedData) : { groups: [] };
-            data.wallpaper = wallpaper;
-            this.currentWallpaper = wallpaper;
-            localStorage.setItem('startpage-data', JSON.stringify(data));
-
-            return true;
-        } catch (error) {
-            console.error('Save wallpaper error:', error);
-            return false;
-        }
+        this.currentWallpaper = wallpaper;
+        return writeWallpaperStore({
+            current: wallpaper,
+            uploaded: this.uploadedWallpapers
+        });
     }
 
     // 保存所有已上传的壁纸
     async saveUploadedWallpapers(wallpapers) {
-        try {
-            const savedData = localStorage.getItem('startpage-data');
-            let data = savedData ? JSON.parse(savedData) : { groups: [] };
-            data.uploadedWallpapers = wallpapers;
-            this.uploadedWallpapers = wallpapers;
-            localStorage.setItem('startpage-data', JSON.stringify(data));
-
-            return true;
-        } catch (error) {
-            console.error('Save uploaded wallpapers error:', error);
-            return false;
-        }
+        this.uploadedWallpapers = wallpapers;
+        return writeWallpaperStore({
+            current: this.currentWallpaper,
+            uploaded: wallpapers
+        });
     }
 
     // 添加上传的壁纸到列表
@@ -340,54 +307,100 @@ class PopupWallpaperManager {
 }
 
 // 获取图标 API URL
+// renderShortcuts 里每个站点都会问一次，所以缓存解析结果；
+// 缓存以原始字符串为凭据，设置页写入后会自动失效。
+const DEFAULT_ICON_API = 'https://toolb.cn/favicon/{domain}';
+let iconApiRawCache;
+let iconApiValueCache = DEFAULT_ICON_API;
+let iconApiCached = false;
+
 function getIconApiUrl() {
+    const raw = localStorage.getItem('startpage-faviconapi');
+    if (iconApiCached && iconApiRawCache === raw) {
+        return iconApiValueCache;
+    }
+    let value = DEFAULT_ICON_API;
     try {
-        const savedSettings = localStorage.getItem('startpage-faviconapi');
-        if (savedSettings) {
-            const settings = JSON.parse(savedSettings);
-            return settings.iconApiUrl || 'https://toolb.cn/favicon/{domain}';
+        if (raw) {
+            const settings = JSON.parse(raw);
+            if (settings && settings.iconApiUrl) value = settings.iconApiUrl;
         }
     } catch (error) {
         console.error('Get icon API URL error:', error);
     }
-    return 'https://toolb.cn/favicon/{domain}';
+    iconApiRawCache = raw;
+    iconApiValueCache = value;
+    iconApiCached = true;
+    return value;
 }
 
-// 图标错误处理函数
-function handleIconError(img) {
-    img.style.width = '100%';
-    img.style.height = '100%';
-    img.style.objectFit = 'contain';
-    img.addEventListener('error', function() {
-        this.onerror = null;
-        const parent = this.parentElement;
-        const siteName = this.dataset.siteName;
-        this.remove();
-        if (parent && siteName) {
-            parent.innerHTML = siteName.charAt(0).toUpperCase();
-        }
-    });
+// 安全取域名：站点 URL 可能是手填的、不带协议的，new URL 会直接抛错并中断整页渲染
+function siteHostname(url) {
+    try {
+        return new URL(url).hostname;
+    } catch (error) {
+        return String(url || '').replace(/^https?:\/\//i, '').split(/[/?#]/)[0];
+    }
+}
+
+// 图标加载失败时的兜底：显示站点名首字母。
+// 注意 <img> 只藏起来、不删掉 —— 这个图标很可能马上就从另一个图标源拿到了，
+// 到时候直接换个 src 就能换回来；删掉的话本次会话就只能一直看字母。
+//
+// 尺寸不再由这里逐个写内联样式（原来每渲染一次就是 72 × 3 次样式写入），
+// 已交给 style.css 的 .site-icon / .popup-site-icon-img 规则。
+//
+// 监听方式也改成「容器级 + 捕获阶段」一个监听器统管：error 事件不冒泡，
+// 但捕获阶段能拿到，所以不必再给每个图标各挂一个（原来每次渲染 72 个）。
+const iconFallbackBound = new WeakSet();
+
+function bindIconFallback(container) {
+    if (!container || iconFallbackBound.has(container)) return;
+    iconFallbackBound.add(container);
+    container.addEventListener('error', function(e) {
+        const img = e.target;
+        if (!img || !img.classList) return;
+        if (!img.classList.contains('site-icon') && !img.classList.contains('popup-site-icon-img')) return;
+        const parent = img.parentElement;
+        const siteName = img.dataset.siteName;
+        if (!parent || !siteName) { img.remove(); return; }
+        img.style.display = 'none';
+        if (parent.querySelector('.icon-fallback-text')) return; // 已经有字母了，别再加一个
+        const fallback = document.createElement('span');
+        fallback.className = 'icon-fallback-text';
+        fallback.textContent = siteName.charAt(0).toUpperCase();
+        parent.appendChild(fallback);
+    }, true);
 }
 
 // 实时更新时间和日期
+// 缓存元素引用与上一次的日期字符串：每秒只写一次时钟，
+// 日期没变就不重算、不写 DOM。
+let timeElement = null;
+let dateElement = null;
+let lastDateString = '';
+
 function updateDateTime() {
     const now = new Date();
-    
-    // 更新时间
-    const hours = String(now.getHours()).padStart(2, '0');
-    const minutes = String(now.getMinutes()).padStart(2, '0');
-    const seconds = String(now.getSeconds()).padStart(2, '0');
-    const timeString = `${hours}:${minutes}:${seconds}`;
-    document.getElementById('time').textContent = timeString;
-    
-    // 更新日期
-    const year = now.getFullYear();
-    const month = now.getMonth() + 1;
-    const day = now.getDate();
-    const weekdays = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
-    const weekday = weekdays[now.getDay()];
-    const dateString = `${year}年${month}月${day}日 ${weekday}`;
-    document.getElementById('date').textContent = dateString;
+
+    if (!timeElement) timeElement = document.getElementById('time');
+    if (!dateElement) dateElement = document.getElementById('date');
+
+    if (timeElement) {
+        const hours = String(now.getHours()).padStart(2, '0');
+        const minutes = String(now.getMinutes()).padStart(2, '0');
+        const seconds = String(now.getSeconds()).padStart(2, '0');
+        timeElement.textContent = `${hours}:${minutes}:${seconds}`;
+    }
+
+    if (dateElement) {
+        const weekdays = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
+        const dateString = `${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日 ${weekdays[now.getDay()]}`;
+        if (dateString !== lastDateString) {
+            lastDateString = dateString;
+            dateElement.textContent = dateString;
+        }
+    }
 }
 
 // 初始化时间更新
@@ -432,20 +445,10 @@ async function exportConfig() {
         const engines = await loadSearchEngines();
         config.data.searchEngines = engines;
 
-        // 获取壁纸数据
-        const savedData = localStorage.getItem('startpage-data');
-        if (savedData) {
-            try {
-                const data = JSON.parse(savedData);
-                if (data.uploadedWallpapers && Array.isArray(data.uploadedWallpapers)) {
-                    config.data.uploadedWallpapers = data.uploadedWallpapers.filter(w => 
-                        w.startsWith('http://') || w.startsWith('https://')
-                    );
-                }
-            } catch (error) {
-                console.error('Failed to parse saved data:', error);
-            }
-        }
+        // 获取壁纸数据（只导出 URL 壁纸；base64 上传图太大，不适合塞进配置文件）
+        config.data.uploadedWallpapers = readWallpaperStore().uploaded.filter(w =>
+            typeof w === 'string' && (w.startsWith('http://') || w.startsWith('https://'))
+        );
 
         // 获取图标来源 API 设置
         const savedSettings = localStorage.getItem('startpage-faviconapi');
@@ -647,7 +650,7 @@ function importConfig() {
                         ...currentData,
                         groups: config.data.groups
                     };
-                    localStorage.setItem('startpage-data', JSON.stringify(mergedData));
+                    writeStartpageData(mergedData);
                 }
 
                 // 导入搜索引擎数据
@@ -655,16 +658,14 @@ function importConfig() {
                     localStorage.setItem('searchEngines', JSON.stringify(config.data.searchEngines));
                 }
 
-                // 导入壁纸数据
-                const savedData = localStorage.getItem('startpage-data');
-                let data = savedData ? JSON.parse(savedData) : { groups: [] };
-                
-                // 导入URL壁纸列表
-                if (config.data.uploadedWallpapers && Array.isArray(config.data.uploadedWallpapers)) {
-                    data.uploadedWallpapers = config.data.uploadedWallpapers;
+                // 导入壁纸数据（只覆盖 URL 壁纸列表，当前壁纸与本地已上传的图保持不动）
+                if (Array.isArray(config.data.uploadedWallpapers)) {
+                    const wallpaperStore = readWallpaperStore();
+                    writeWallpaperStore({
+                        current: wallpaperStore.current,
+                        uploaded: config.data.uploadedWallpapers
+                    });
                 }
-                
-                localStorage.setItem('startpage-data', JSON.stringify(data));
 
                 // 导入图标来源 API 设置
                 if (config.data.iconApiUrl) {
@@ -790,253 +791,315 @@ async function initNewSearch() {
     };
 }
 
-// 添加快捷方式悬停效果和拖拽功能
-function initShortcuts() {
-    const shortcutItems = document.querySelectorAll('.shortcut-item');
-    
-    shortcutItems.forEach(item => {
-        // 添加悬停效果
-        item.addEventListener('mouseenter', function() {
-            this.style.transform = 'translateY(-5px)';
-        });
-        
-        item.addEventListener('mouseleave', function() {
-            this.style.transform = 'translateY(0)';
-        });
-        
-        // 设置可拖拽
-        item.setAttribute('draggable', 'true');
-    });
-    
-    // 添加网站拖拽功能
-    let draggedItem = null;
-    
-    shortcutItems.forEach(item => {
-        // 拖拽开始事件
-        item.addEventListener('dragstart', function(e) {
-            e.stopPropagation();
-            draggedItem = this;
-            this.classList.add('dragging');
-            e.dataTransfer.effectAllowed = 'move';
-            e.dataTransfer.setData('text/plain', '');
-        });
-        
-        // 拖拽经过事件
-        item.addEventListener('dragover', function(e) {
-            e.stopPropagation();
-            e.preventDefault();
-            if (draggedItem) {
-                const draggedContainer = draggedItem.closest('.shortcut-items');
-                const targetContainer = this.closest('.shortcut-items');
-                if (draggedContainer === targetContainer) {
-                    e.dataTransfer.dropEffect = 'move';
-                } else {
-                    e.dataTransfer.dropEffect = 'none';
-                }
-            }
-        });
-        
-        // 拖拽进入事件
-        item.addEventListener('dragenter', function(e) {
-            e.stopPropagation();
-            e.preventDefault();
-            if (draggedItem && this !== draggedItem) {
-                const draggedContainer = draggedItem.closest('.shortcut-items');
-                const targetContainer = this.closest('.shortcut-items');
-                if (draggedContainer === targetContainer) {
-                    this.classList.add('drag-over');
-                }
-            }
-        });
-        
-        // 拖拽离开事件
-        item.addEventListener('dragleave', function(e) {
-            e.stopPropagation();
-            this.classList.remove('drag-over');
-        });
-        
-        // 放置事件
-        item.addEventListener('drop', async function(e) {
-            e.stopPropagation();
-            e.preventDefault();
-            this.classList.remove('drag-over');
-            
-            if (draggedItem && draggedItem !== this) {
-                const parentContainer = this.closest('.shortcut-items');
-                const draggedContainer = draggedItem.closest('.shortcut-items');
-                
-                // 只允许在同一个分组内拖拽
-                if (parentContainer === draggedContainer) {
-                    const itemsArray = Array.from(parentContainer.children);
-                    const draggedIndex = itemsArray.indexOf(draggedItem);
-                    const dropIndex = itemsArray.indexOf(this);
-                    
-                    // 重新排序网站
-                    if (draggedIndex < dropIndex) {
-                        parentContainer.insertBefore(draggedItem, this.nextSibling);
-                    } else {
-                        parentContainer.insertBefore(draggedItem, this);
-                    }
-                    
-                    // 保存新的网站排序
-                    await saveNewSiteOrder(parentContainer);
-                }
-            }
-        });
-        
-        // 拖拽结束事件
-        item.addEventListener('dragend', function(e) {
-            e.stopPropagation();
-            this.classList.remove('dragging');
-            shortcutItems.forEach(i => i.classList.remove('drag-over'));
+// 快捷方式区域的拖拽：改成挂在容器上的事件委托，只绑一次。
+// 原来是给每个图标挂 7 个监听器、每次重渲染全部重绑（一次渲染产生 N×7 个新闭包），
+// 现在只留一套容器级处理器，hover 位移交回 CSS，重渲染不再有任何绑定开销。
+let shortcutsDragBound = false;
+let draggedItem = null;
+let draggedGroup = null;
+
+function bindShortcutsDragOnce() {
+    if (shortcutsDragBound) return;
+    const container = document.querySelector('.shortcuts');
+    if (!container) return;
+    shortcutsDragBound = true;
+
+    function clearDragOver() {
+        container.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+    }
+
+    // 同一个图标内部（图标图 -> 文字）移动不算离开，避免 drag-over 闪烁
+    function enteredOther(target, selector, current) {
+        if (!target || typeof target.closest !== 'function') return true;
+        return target.closest(selector) !== current;
+    }
+
+    container.addEventListener('dragstart', function (event) {
+        const item = event.target.closest('.shortcut-item');
+        const group = event.target.closest('.shortcut-group');
+        if (item) {
+            draggedItem = item;
+            draggedGroup = null;
+            item.classList.add('dragging');
+        } else if (group) {
+            draggedGroup = group;
             draggedItem = null;
-        });
+            group.classList.add('dragging');
+        } else {
+            return;
+        }
+        if (event.dataTransfer) {
+            event.dataTransfer.effectAllowed = 'move';
+            event.dataTransfer.setData('text/plain', '');
+        }
     });
-    
-    // 保存新的网站排序
-    async function saveNewSiteOrder(container) {
-        try {
-            const group = container.closest('.shortcut-group');
-            const groupId = group.dataset.groupId;
-            const siteItems = container.querySelectorAll('.shortcut-item');
-            const siteIds = Array.from(siteItems).map(item => {
-                return item.dataset.siteId || '';
-            }).filter(Boolean);
-            
-            // 加载当前数据
-            const savedData = localStorage.getItem('startpage-data');
-            let data = savedData ? JSON.parse(savedData) : { groups: [] };
-            
-            // 找到对应的分组并重新排序网站
-            const groupIndex = data.groups.findIndex(g => g.id === groupId);
-            if (groupIndex !== -1) {
-                const originalSites = data.groups[groupIndex].sites;
-                data.groups[groupIndex].sites = siteIds.map(id => 
-                    originalSites.find(site => site.id === id)
-                ).filter(Boolean);
-                
-                // 保存到localStorage
-                localStorage.setItem('startpage-data', JSON.stringify(data));
+
+    container.addEventListener('dragover', function (event) {
+        const item = event.target.closest('.shortcut-item');
+        const group = event.target.closest('.shortcut-group');
+        if (!item && !group) return;
+        event.preventDefault();
+        if (!event.dataTransfer) return;
+
+        if (item && draggedItem) {
+            // 只允许在同一个分组内换位置
+            event.dataTransfer.dropEffect =
+                draggedItem.closest('.shortcut-items') === item.closest('.shortcut-items') ? 'move' : 'none';
+        } else if (!item && draggedGroup) {
+            event.dataTransfer.dropEffect = 'move';
+        }
+    });
+
+    container.addEventListener('dragenter', function (event) {
+        const item = event.target.closest('.shortcut-item');
+        if (item) {
+            if (draggedItem && draggedItem !== item &&
+                draggedItem.closest('.shortcut-items') === item.closest('.shortcut-items')) {
+                item.classList.add('drag-over');
             }
+            return;
+        }
+        const group = event.target.closest('.shortcut-group');
+        // 正在拖网站时不接受停在分组上
+        if (group && draggedGroup && draggedGroup !== group && !draggedItem) {
+            group.classList.add('drag-over');
+        }
+    });
+
+    container.addEventListener('dragleave', function (event) {
+        const item = event.target.closest('.shortcut-item');
+        if (item) {
+            if (enteredOther(event.relatedTarget, '.shortcut-item', item)) item.classList.remove('drag-over');
+            return;
+        }
+        const group = event.target.closest('.shortcut-group');
+        if (group && enteredOther(event.relatedTarget, '.shortcut-group', group)) {
+            group.classList.remove('drag-over');
+        }
+    });
+
+    container.addEventListener('drop', async function (event) {
+        const item = event.target.closest('.shortcut-item');
+        if (item) {
+            event.preventDefault();
+            item.classList.remove('drag-over');
+            if (!draggedItem || draggedItem === item) return;
+
+            const parentContainer = item.closest('.shortcut-items');
+            if (parentContainer !== draggedItem.closest('.shortcut-items')) return;
+
+            const itemsArray = Array.from(parentContainer.children);
+            const draggedIndex = itemsArray.indexOf(draggedItem);
+            const dropIndex = itemsArray.indexOf(item);
+            if (draggedIndex === -1 || dropIndex === -1) return;
+
+            parentContainer.insertBefore(draggedItem, draggedIndex < dropIndex ? item.nextSibling : item);
+            await saveNewSiteOrder(parentContainer);
+            return;
+        }
+
+        const group = event.target.closest('.shortcut-group');
+        if (!group) return;
+        event.preventDefault();
+        group.classList.remove('drag-over');
+        // 正在拖网站时不处理分组排序
+        if (draggedItem || !draggedGroup || draggedGroup === group) return;
+
+        const groupsContainer = group.parentElement;
+        const groupsArray = Array.from(groupsContainer.children);
+        const draggedIndex = groupsArray.indexOf(draggedGroup);
+        const dropIndex = groupsArray.indexOf(group);
+        if (draggedIndex === -1 || dropIndex === -1) return;
+
+        groupsContainer.insertBefore(draggedGroup, draggedIndex < dropIndex ? group.nextSibling : group);
+        await saveNewGroupOrder();
+    });
+
+    container.addEventListener('dragend', function () {
+        if (draggedItem) draggedItem.classList.remove('dragging');
+        if (draggedGroup) draggedGroup.classList.remove('dragging');
+        draggedItem = null;
+        draggedGroup = null;
+        clearDragOver();
+    });
+
+    // 保存新的网站排序
+    async function saveNewSiteOrder(siteContainer) {
+        try {
+            const groupElement = siteContainer.closest('.shortcut-group');
+            if (!groupElement) return;
+            const groupId = groupElement.dataset.groupId;
+            const siteIds = Array.from(siteContainer.querySelectorAll('.shortcut-item'))
+                .map(item => item.dataset.siteId)
+                .filter(Boolean);
+
+            const data = readStartpageData();
+            const group = data.groups.find(g => g.id === groupId);
+            if (!group) return;
+
+            const originalSites = group.sites;
+            group.sites = siteIds
+                .map(id => originalSites.find(site => site.id === id))
+                .filter(Boolean);
+            writeStartpageData(data);
         } catch (error) {
             console.error('Save site order error:', error);
         }
     }
-    
-    // 添加分组拖拽功能
-    const groups = document.querySelectorAll('.shortcut-group');
-    let draggedGroup = null;
-    
-    groups.forEach(group => {
-        // 拖拽开始事件
-        group.addEventListener('dragstart', function(e) {
-            e.stopPropagation();
-            draggedGroup = this;
-            this.classList.add('dragging');
-            e.dataTransfer.effectAllowed = 'move';
-        });
-        
-        // 拖拽经过事件
-        group.addEventListener('dragover', function(e) {
-            e.stopPropagation();
-            e.preventDefault();
-            e.dataTransfer.dropEffect = 'move';
-        });
-        
-        // 拖拽进入事件
-        group.addEventListener('dragenter', function(e) {
-            e.stopPropagation();
-            e.preventDefault();
-            if (draggedGroup && this !== draggedGroup && !draggedItem) {
-                this.classList.add('drag-over');
-            }
-        });
-        
-        // 拖拽离开事件
-        group.addEventListener('dragleave', function(e) {
-            e.stopPropagation();
-            this.classList.remove('drag-over');
-        });
-        
-        // 放置事件
-        group.addEventListener('drop', async function(e) {
-            e.stopPropagation();
-            e.preventDefault();
-            this.classList.remove('drag-over');
-            
-            // 如果正在拖拽网站，则不允许放置到分组上
-            if (draggedItem) {
-                return;
-            }
-            
-            if (draggedGroup && draggedGroup !== this) {
-                const shortcutsContainer = document.querySelector('.shortcuts');
-                const groupsArray = Array.from(shortcutsContainer.children);
-                const draggedIndex = groupsArray.indexOf(draggedGroup);
-                const dropIndex = groupsArray.indexOf(this);
-                
-                // 重新排序分组
-                if (draggedIndex < dropIndex) {
-                    shortcutsContainer.insertBefore(draggedGroup, this.nextSibling);
-                } else {
-                    shortcutsContainer.insertBefore(draggedGroup, this);
-                }
-                
-                // 保存新的分组顺序
-                await saveNewGroupOrder();
-            }
-        });
-        
-        // 拖拽结束事件
-        group.addEventListener('dragend', function(e) {
-            e.stopPropagation();
-            this.classList.remove('dragging');
-            groups.forEach(g => g.classList.remove('drag-over'));
-            draggedGroup = null;
-        });
-    });
-    
+
     // 保存新的分组顺序
     async function saveNewGroupOrder() {
         try {
-            const groups = document.querySelectorAll('.shortcut-group');
-            const groupIds = Array.from(groups).map(group => group.dataset.groupId);
-            
-            // 加载当前数据
-            const savedData = localStorage.getItem('startpage-data');
-            let data = savedData ? JSON.parse(savedData) : { groups: [] };
-            
-            // 重新排序分组
-            const originalGroups = data.groups;
-            data.groups = groupIds.map(id => originalGroups.find(group => group.id === id)).filter(Boolean);
-            
-            // 保存到localStorage
-            localStorage.setItem('startpage-data', JSON.stringify(data));
+            const groupsContainer = document.querySelector('.shortcuts');
+            const groupIds = Array.from(groupsContainer.children).map(group => group.dataset.groupId);
+
+            const data = readStartpageData();
+            data.groups = groupIds.map(id => data.groups.find(g => g.id === id)).filter(Boolean);
+            writeStartpageData(data);
         } catch (error) {
             console.error('Save group order error:', error);
         }
     }
 }
 
+// ---------------- 起始页数据读写（带解析缓存） ----------------
+// startpage-data 里同时装着分组、当前壁纸和「已上传壁纸」（上传的是 base64，可能好几 MB），
+// 而 renderShortcuts / 拖拽排序这些热路径会反复读它。缓存以「原始字符串」为凭据：
+// 任何一处直接写 localStorage 都会让字符串变掉，缓存自动失效，
+// 所以不需要在各处手工清缓存，也不会读到脏数据。
+let startpageRawCache;
+let startpageDataCache;
+let startpageCached = false;
+
+function readStartpageData() {
+    const raw = localStorage.getItem('startpage-data');
+    if (startpageCached && startpageRawCache === raw) {
+        return startpageDataCache;
+    }
+
+    let data;
+    try {
+        data = raw ? JSON.parse(raw) : getDefaultShortcutsData();
+    } catch (error) {
+        console.error('Failed to parse saved data:', error);
+        data = getDefaultShortcutsData();
+    }
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+        data = getDefaultShortcutsData();
+    }
+    if (!Array.isArray(data.groups)) data.groups = [];
+
+    startpageRawCache = raw;
+    startpageDataCache = data;
+    startpageCached = true;
+    return data;
+}
+
+function writeStartpageData(data) {
+    const raw = JSON.stringify(data);
+    localStorage.setItem('startpage-data', raw);
+    startpageRawCache = raw;
+    startpageDataCache = data;
+    startpageCached = true;
+}
+
+/* ------------------------------------------------------------------
+ * 壁纸存储层：startpage-wallpaper
+ *
+ * 为什么单独拆一个键：壁纸（特别是上传图的 base64）可能有几 MB，
+ * 以前和分组数据挤在同一个 startpage-data JSON 里，导致每次读写分组
+ * 都要连带把这几 MB 序列化 / 解析一遍。拆开后 startpage-data 只剩
+ * 纯文本结构（几 KB），分组相关的热路径彻底不再碰壁纸。
+ *
+ * 结构：{ current: string, uploaded: string[] }
+ * ------------------------------------------------------------------ */
+
+const WALLPAPER_KEY = 'startpage-wallpaper';
+const WALLPAPER_DEFAULT = 'white';
+
+// 一次性迁移：把 startpage-data 里的 wallpaper / uploadedWallpapers 搬到独立键。
+// 幂等（独立键已存在就直接跳过）、失败安全（先写新键成功，才动手删旧字段；
+// 任何一步出错都保留旧数据原样，读取端有回退路径兜底）。
+function migrateWallpaperStorage() {
+    try {
+        if (localStorage.getItem(WALLPAPER_KEY) !== null) return false;
+
+        const raw = localStorage.getItem('startpage-data');
+        if (!raw) return false;
+
+        let legacy;
+        try {
+            legacy = JSON.parse(raw);
+        } catch (error) {
+            return false;
+        }
+        if (!legacy || typeof legacy !== 'object' || Array.isArray(legacy)) return false;
+
+        const hasCurrent = typeof legacy.wallpaper === 'string';
+        const hasUploaded = Array.isArray(legacy.uploadedWallpapers);
+        // 老数据里本来就没有壁纸字段，不必凭空空建一个键
+        if (!hasCurrent && !hasUploaded) return false;
+
+        // 先写新键 —— 这一步失败就直接放弃，旧字段一个都不动，不会丢壁纸
+        localStorage.setItem(WALLPAPER_KEY, JSON.stringify({
+            current: hasCurrent ? legacy.wallpaper : WALLPAPER_DEFAULT,
+            uploaded: hasUploaded ? legacy.uploadedWallpapers : []
+        }));
+
+        // 新键确认落盘后再摘旧字段。即使这一步失败（比如配额不足），
+        // 也只是多留一份冗余，读取端优先读新键，结果仍然正确。
+        delete legacy.wallpaper;
+        delete legacy.uploadedWallpapers;
+        localStorage.setItem('startpage-data', JSON.stringify(legacy));
+        return true;
+    } catch (error) {
+        console.error('Migrate wallpaper storage error:', error);
+        return false;
+    }
+}
+
+// 读壁纸。独立键优先；没有独立键则回退到 startpage-data 的旧字段
+// （兼容迁移失败、或用户导入的是旧版导出配置这两种情况）。
+function readWallpaperStore() {
+    const raw = localStorage.getItem(WALLPAPER_KEY);
+    if (raw !== null) {
+        try {
+            const parsed = JSON.parse(raw);
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                return {
+                    current: typeof parsed.current === 'string' ? parsed.current : WALLPAPER_DEFAULT,
+                    uploaded: Array.isArray(parsed.uploaded) ? parsed.uploaded : []
+                };
+            }
+        } catch (error) {
+            console.error('Failed to parse wallpaper store:', error);
+        }
+    }
+
+    const legacy = readStartpageData();
+    return {
+        current: typeof legacy.wallpaper === 'string' ? legacy.wallpaper : WALLPAPER_DEFAULT,
+        uploaded: Array.isArray(legacy.uploadedWallpapers) ? legacy.uploadedWallpapers : []
+    };
+}
+
+// 写壁纸。只回写独立键，绝不碰 startpage-data —— 这是这次拆分收益的来源。
+function writeWallpaperStore(store) {
+    try {
+        localStorage.setItem(WALLPAPER_KEY, JSON.stringify({
+            current: typeof store.current === 'string' ? store.current : WALLPAPER_DEFAULT,
+            uploaded: Array.isArray(store.uploaded) ? store.uploaded : []
+        }));
+        return true;
+    } catch (error) {
+        console.error('Save wallpaper store error:', error);
+        return false;
+    }
+}
+
 // 从localStorage读取数据
 async function loadShortcutsData() {
-    try {
-        // 从localStorage加载数据
-        const savedData = localStorage.getItem('startpage-data');
-        if (savedData) {
-            try {
-                return JSON.parse(savedData);
-            } catch (error) {
-                console.error('Failed to parse saved data:', error);
-                return getDefaultShortcutsData();
-            }
-        } else {
-            return getDefaultShortcutsData();
-        }
-    } catch (error) {
-        console.error('Load shortcuts data error:', error);
-        return getDefaultShortcutsData();
-    }
+    return readStartpageData();
 }
 
 // 获取默认快捷方式数据
@@ -1046,37 +1109,163 @@ function getDefaultShortcutsData() {
     };
 }
 
+// ---- 图标缓存接入 ----
+// 图标地址优先级：站点自带图标 > 本地抽屉里存的 > 图标 API（老办法）
+function resolveIconSrc(site, host, iconApi) {
+    if (site.icon && (site.icon.startsWith('http') || site.icon.startsWith('data:'))) {
+        return site.icon;
+    }
+    const cached = typeof iconCache !== 'undefined' && iconCache ? iconCache.get(host) : null;
+    return cached || iconApi.replace('{domain}', host);
+}
+
+// 用过的图标源记一份，作为「这个源拿不到就换那个源」的兜底候选。
+// 只记模板字符串（一百来字节），不记图。
+const ICON_API_HISTORY_KEY = 'startpage-faviconapi-history';
+const ICON_API_HISTORY_MAX = 5;
+
+function readIconApiHistory() {
+    try {
+        const raw = localStorage.getItem(ICON_API_HISTORY_KEY);
+        const list = raw ? JSON.parse(raw) : [];
+        return Array.isArray(list) ? list.filter(t => typeof t === 'string' && t) : [];
+    } catch (error) {
+        return [];
+    }
+}
+
+function rememberIconApi(template) {
+    const value = String(template || '').trim();
+    if (!value) return;
+    try {
+        const list = readIconApiHistory();
+        if (list[0] === value) return; // 没变就别白写一次盘
+        const next = [value, ...list.filter(t => t !== value)].slice(0, ICON_API_HISTORY_MAX);
+        localStorage.setItem(ICON_API_HISTORY_KEY, JSON.stringify(next));
+    } catch (error) {
+        /* 记不下就算了，只是少一个兜底候选，不影响图标显示 */
+    }
+}
+
+// 候选图标源，按优先级：当前源 → 历史用过的源 → 内置默认源。
+// 不在扩展可访问名单里的会直接跳过：fetch 必然被拦，试了也是白试，还刷一屏报错。
+function getIconApiCandidates() {
+    const current = getIconApiUrl();
+    const ordered = [current, ...readIconApiHistory(), DEFAULT_ICON_API];
+    const seen = new Set();
+    const candidates = [];
+
+    ordered.forEach(template => {
+        if (!template || seen.has(template)) return;
+        seen.add(template);
+        if (typeof iconCache !== 'undefined' && iconCache) {
+            const allowed = iconCache.isUrlAllowed(template.replace('{domain}', 'example.com'));
+            if (allowed === false) return; // 明确不在名单里
+        }
+        candidates.push(template);
+    });
+
+    return candidates.length ? candidates : [current];
+}
+
+// 把抽屉读进内存。读不出来就当作空抽屉，页面照常跑。
+// 把图标抽屉读进内存。读不出来/读太慢都当空抽屉，页面照常跑。
+//
+// 这里必须带超时：图标缓存只是「加速」，绝不能反过来把整页拖住。
+// 启动流程是 await loadIconCache() → renderShortcuts()，IndexedDB 只要不回调
+// （数据库被别的连接占着、库损坏、异常环境下 open 不返回……），
+// 这一个 await 就会让 renderShortcuts 永远跑不到 —— 页面一个快捷方式都不显示。
+// 超时后放弃本轮缓存，照常用图标 API 渲染，功能与加缓存之前完全一致。
+const ICON_CACHE_LOAD_TIMEOUT = 300;
+
+function loadIconCache() {
+    if (typeof iconCache === 'undefined' || !iconCache) return Promise.resolve(false);
+
+    let timer = null;
+    const timeout = new Promise(resolve => {
+        timer = setTimeout(() => resolve(false), ICON_CACHE_LOAD_TIMEOUT);
+    });
+
+    return Promise.race([
+        iconCache.loadAll().then(() => true, () => false),
+        timeout
+    ]).then(ready => {
+        if (timer !== null) clearTimeout(timer);
+        return ready;
+    });
+}
+
+// 把刚拿到的图标塞进对应的格子。可能有多个格子（首页 + 管理面板）用同一个域名。
+// 注意 <img> 加载失败时只是被藏起来、没被删掉 —— 所以这里能直接换 src 换回来。
+function applyCachedIcon(host, blobUrl, container) {
+    let nodes;
+    try {
+        nodes = container.querySelectorAll('[data-icon-host="' + CSS.escape(host) + '"]');
+    } catch (error) {
+        return; // 域名里出现无法转义的字符就跳过这一张，不影响其他图标
+    }
+    nodes.forEach(node => {
+        if (node.tagName !== 'IMG') return;
+        node.style.display = '';
+        node.src = blobUrl;
+        const parent = node.parentElement;
+        const fallback = parent && parent.querySelector('.icon-fallback-text');
+        if (fallback) fallback.remove();
+    });
+}
+
+// 渲染完之后，把本地还没存的图标悄悄抓回来。
+// 抓到一张就只换那一张 <img>，不整页重渲染 —— 用户看不到任何闪动。
+function warmIconCache(hosts, container) {
+    if (typeof iconCache === 'undefined' || !iconCache || !container) return;
+    const unique = [...new Set((hosts || []).filter(Boolean))];
+    if (!unique.length) return;
+    // 候选源按优先级排好交给缓存层：当前源失败会自动换下一个源再试
+    const urlFors = getIconApiCandidates().map(template => host => template.replace('{domain}', host));
+    iconCache.schedule(unique, urlFors, (host, blobUrl) => applyCachedIcon(host, blobUrl, container));
+}
+
 // 渲染快捷方式
 async function renderShortcuts() {
     const shortcutsContainer = document.querySelector('.shortcuts');
+    if (!shortcutsContainer) return;
     try {
         const data = await loadShortcutsData();
-        const groups = data.groups;
+        const groups = data.groups || [];
+
+        // 把分组镜像给后台，右键菜单靠它拼子项
+        qdbSyncGroupsMirror(groups);
+
+        // 图标 API 只取一次（原来在 map 里每个站点都读一遍 localStorage + JSON.parse）
+        const iconApi = getIconApiUrl();
+        const iconHosts = [];
 
         shortcutsContainer.innerHTML = groups.map(group => `
             <div class="shortcut-group" draggable="true" data-group-id="${group.id}">
                 <h3 class="group-title">${group.name}</h3>
                 <div class="shortcut-items">
-                    ${group.sites.map(site => `
-                        <a href="${site.url}" class="shortcut-item" target="_blank" data-site-id="${site.id}">
+                    ${(group.sites || []).map(site => {
+                        const host = siteHostname(site.url);
+                        iconHosts.push(host);
+                        const src = resolveIconSrc(site, host, iconApi);
+                        return `
+                        <a href="${site.url}" class="shortcut-item" draggable="true" target="_blank" data-site-id="${site.id}">
                             <div class="shortcut-icon">
-                                ${site.icon && (site.icon.startsWith('http') || site.icon.startsWith('data:')) ? `
-                                    <img src="${site.icon}" alt="${site.name} icon" class="site-icon" data-site-name="${site.name}" data-hostname="${new URL(site.url).hostname}">
-                                ` : `
-                                    <img src="${getIconApiUrl().replace('{domain}', new URL(site.url).hostname)}" alt="${site.name} icon" class="site-icon" data-site-name="${site.name}" data-hostname="${new URL(site.url).hostname}">
-                                `}
+                                <img src="${src}" alt="${site.name} icon" class="site-icon" data-site-name="${site.name}" data-icon-host="${host}">
                             </div>
                             <span class="shortcut-name">${site.name}</span>
-                        </a>
-                    `).join('')}
+                        </a>`;
+                    }).join('')}
                 </div>
             </div>
         `).join('');
-        
-        document.querySelectorAll('.site-icon').forEach(handleIconError);
 
-        // 重新初始化快捷方式事件
-        initShortcuts();
+        // 只在快捷方式区域内找图标；拖拽走容器级事件委托，这里只需确认已绑定
+        // 图标加载失败兜底：容器级捕获监听，一个就够
+        bindIconFallback(shortcutsContainer);
+        bindShortcutsDragOnce();
+        // 本地抽屉里还没有的图标，趁这会儿悄悄补上
+        warmIconCache(iconHosts, shortcutsContainer);
     } catch (error) {
         console.error('Render shortcuts error:', error);
     }
@@ -1085,20 +1274,9 @@ async function renderShortcuts() {
 // 应用壁纸
 async function applyWallpaper() {
     try {
-        let wallpaper = 'white';
-        
-        // 从localStorage加载数据
-        const savedData = localStorage.getItem('startpage-data');
-        if (savedData) {
-            try {
-                const data = JSON.parse(savedData);
-                if (data.wallpaper) {
-                    wallpaper = data.wallpaper;
-                }
-            } catch (error) {
-                console.error('Failed to parse saved data:', error);
-            }
-        }
+        // 壁纸已独立成 startpage-wallpaper 键：这里既不解析分组数据，
+        // 也不再需要任何回写 —— 开新标签页的壁纸处理现在是「纯读 + 0 次写盘」
+        const wallpaper = readWallpaperStore().current;
         
         // 应用壁纸
         if (wallpaper === 'white') {
@@ -1121,12 +1299,6 @@ async function applyWallpaper() {
             };
             img.src = wallpaper;
         }
-        
-        // 保存壁纸到localStorage
-        const savedWallpaperData = localStorage.getItem('startpage-data');
-        let data = savedWallpaperData ? JSON.parse(savedWallpaperData) : { groups: [] };
-        data.wallpaper = wallpaper;
-        localStorage.setItem('startpage-data', JSON.stringify(data));
     } catch (error) {
         console.error('Apply wallpaper error:', error);
     }
@@ -1134,16 +1306,21 @@ async function applyWallpaper() {
 
 // 页面加载完成后初始化
 window.addEventListener('DOMContentLoaded', async function() {
+    // 先把壁纸数据从 startpage-data 里迁到独立键（一次性、幂等、失败安全）
+    migrateWallpaperStorage();
+    // 把当前用的图标源记进历史，作为「这个源拿不到就换那个源」的兜底候选
+    rememberIconApi(getIconApiUrl());
+    // 把本地图标抽屉读进内存：渲染时才能同步命中，不必把渲染改成异步
+    await loadIconCache();
     await initNewSearch();
     await renderShortcuts();
     await applyWallpaper();
+    // 处理右键菜单 / 弹窗攒下的收藏
+    await qdbInitBridge();
     
-    // 添加页面加载动画
-    document.body.style.opacity = '0';
-    setTimeout(() => {
-        document.body.style.transition = 'opacity 0.5s ease';
-        document.body.style.opacity = '1';
-    }, 100);
+    // 页面淡入动画已移到 style.css 的 page-fade-in。
+    // 原来这三行是在渲染「完成之后」才执行的，效果是内容先露一下、再被隐掉、然后淡回来，
+    // 既是可见的闪动，又白等一个 100ms 定时器。
 });
 
 // 添加键盘快捷键
@@ -1513,9 +1690,15 @@ function showPopup(type) {
                             <label for="icon-api-url">图标 API URL</label>
                             <input type="url" id="icon-api-url" class="form-control" placeholder="例如: https://toolb.cn/favicon/{domain}">
                             <small style="color: #666; font-size: 0.8rem;">使用 {domain} 作为域名的占位符</small>
+                            <small id="icon-cache-hint" style="display: block; margin-top: 6px; font-size: 0.8rem;"></small>
                         </div>
                         <div class="form-group">
                             <button id="save-settings" class="btn btn-primary">保存设置</button>
+                        </div>
+                        <div class="form-group">
+                            <label>本地图标缓存</label>
+                            <div id="icon-cache-status" style="color: #666; font-size: 0.85rem; margin-bottom: 8px;"></div>
+                            <button id="clear-icon-cache" class="btn btn-secondary">清空图标缓存</button>
                         </div>
                     </div>
                 </div>
@@ -1604,6 +1787,9 @@ async function initPopupGroupsManagement(popupContent) {
     function renderGroups() {
         const groupsContainer = popupContent.querySelector('#popup-groups-container');
         const groups = dataManager.getGroups();
+        // 图标 API 只取一次，避免在下面的 map 里每个站点都读一遍 localStorage
+        const iconApi = getIconApiUrl();
+        const iconHosts = [];
 
         if (groups.length === 0) {
             groupsContainer.innerHTML = `
@@ -1626,15 +1812,15 @@ async function initPopupGroupsManagement(popupContent) {
                     </div>
                 </div>
                 <div class="popup-sites-list">
-                    ${group.sites.length > 0 ? group.sites.map(site => `
+                    ${group.sites && group.sites.length > 0 ? group.sites.map(site => {
+                        const host = siteHostname(site.url);
+                        iconHosts.push(host);
+                        const src = resolveIconSrc(site, host, iconApi);
+                        return `
                         <div class="popup-site-item">
                             <div class="popup-site-info">
                                 <div class="popup-site-icon">
-                                    ${site.icon && (site.icon.startsWith('http') || site.icon.startsWith('data:')) ? `
-                                        <img src="${site.icon}" alt="${site.name} icon" class="popup-site-icon-img" data-site-name="${site.name}" data-hostname="${new URL(site.url).hostname}">
-                                    ` : `
-                                        <img src="${getIconApiUrl().replace('{domain}', new URL(site.url).hostname)}" alt="${site.name} icon" class="popup-site-icon-img" data-site-name="${site.name}" data-hostname="${new URL(site.url).hostname}">
-                                    `}
+                                    <img src="${src}" alt="${site.name} icon" class="popup-site-icon-img" data-site-name="${site.name}" data-icon-host="${host}">
                                 </div>
                                 <div class="popup-site-details">
                                     <div class="popup-site-name">${site.name}</div>
@@ -1646,7 +1832,7 @@ async function initPopupGroupsManagement(popupContent) {
                                 <button class="btn btn-danger btn-sm popup-delete-site-btn" data-group-id="${group.id}" data-site-id="${site.id}">删除</button>
                             </div>
                         </div>
-                    `).join('') : `
+                    `;}).join('') : `
                         <div class="empty-state">
                             <p>暂无网站，点击"添加网站"按钮添加</p>
                         </div>
@@ -1657,16 +1843,21 @@ async function initPopupGroupsManagement(popupContent) {
 
         // 绑定分组相关事件
         bindGroupEvents();
-        
-        // 添加图标错误处理
-        document.querySelectorAll('.popup-site-icon-img').forEach(handleIconError);
+
+        // 图标加载失败兜底：容器级捕获监听，一个就够
+        bindIconFallback(groupsContainer);
+        // 本地抽屉里还没有的图标，趁这会儿悄悄补上
+        warmIconCache(iconHosts, groupsContainer);
     }
 
-    // 绑定分组相关事件
+    // 绑定分组相关事件（容器是常驻的，只能绑一次，否则每次渲染都会叠加一个监听器）
+    let groupEventsBound = false;
     function bindGroupEvents() {
+        if (groupEventsBound) return;
         // 使用事件委托处理所有按钮点击
         const groupsContainer = popupContent.querySelector('#popup-groups-container');
         if (groupsContainer) {
+            groupEventsBound = true;
             groupsContainer.addEventListener('click', async (e) => {
                 const target = e.target;
                 
@@ -2079,8 +2270,7 @@ async function initPopupSearchEnginesManagement(popupContent) {
 async function initPopupWallpaperManagement(popupContent) {
     // 初始化壁纸管理器
     const wallpaperManager = new PopupWallpaperManager();
-    await wallpaperManager.loadCurrentWallpaper();
-    await wallpaperManager.loadUploadedWallpapers();
+    await wallpaperManager.loadAll();
 
 
 
@@ -2125,17 +2315,16 @@ async function initPopupWallpaperManagement(popupContent) {
                             await wallpaperManager.removeUploadedWallpaper(wallpaper);
                             
                             // 如果删除的是当前壁纸，重置为默认壁纸
-                            const savedData = localStorage.getItem('startpage-data');
-                            if (savedData) {
-                                try {
-                                    const data = JSON.parse(savedData);
-                                    if (data.wallpaper === wallpaper) {
-                                        data.wallpaper = 'white';
-                                        localStorage.setItem('startpage-data', JSON.stringify(data));
-                                        wallpaperManager.applyWallpaper('white');
-                                    }
-                                } catch (error) {
-                                    console.error('Failed to parse saved data:', error);
+                            // 如果删除的正是当前壁纸，重置为默认
+                            if (wallpaperManager.currentWallpaper === wallpaper) {
+                                await wallpaperManager.saveWallpaper('white');
+                                wallpaperManager.applyWallpaper('white');
+
+                                const previews = popupContent.querySelectorAll('.wallpaper-preview');
+                                previews.forEach(p => p.classList.remove('selected'));
+                                const whitePreview = Array.from(previews).find(p => p.dataset.wallpaper === 'white');
+                                if (whitePreview) {
+                                    whitePreview.classList.add('selected');
                                 }
                             }
                             
@@ -2364,17 +2553,16 @@ async function initPopupWallpaperManagement(popupContent) {
                                     await wallpaperManager.removeUploadedWallpaper(wallpaper);
                                     
                                     // 如果删除的是当前壁纸，重置为默认壁纸
-                                    const savedData = localStorage.getItem('startpage-data');
-                                    if (savedData) {
-                                        try {
-                                            const data = JSON.parse(savedData);
-                                            if (data.wallpaper === wallpaper) {
-                                                data.wallpaper = 'white';
-                                                localStorage.setItem('startpage-data', JSON.stringify(data));
-                                                wallpaperManager.applyWallpaper('white');
-                                            }
-                                        } catch (error) {
-                                            console.error('Failed to parse saved data:', error);
+                                    // 如果删除的正是当前壁纸，重置为默认
+                                    if (wallpaperManager.currentWallpaper === wallpaper) {
+                                        await wallpaperManager.saveWallpaper('white');
+                                        wallpaperManager.applyWallpaper('white');
+
+                                        const previews = popupContent.querySelectorAll('.wallpaper-preview');
+                                        previews.forEach(p => p.classList.remove('selected'));
+                                        const whitePreview = Array.from(previews).find(p => p.dataset.wallpaper === 'white');
+                                        if (whitePreview) {
+                                            whitePreview.classList.add('selected');
                                         }
                                     }
                                     
@@ -2501,502 +2689,6 @@ async function initPopupWallpaperManagement(popupContent) {
     });
 }
 
-// 为弹出界面添加样式
-const style = document.createElement('style');
-style.textContent = `
-    /* 分组管理弹出界面样式 */
-    .groups-management {
-        width: 100%;
-    }
-    
-    .section-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 16px;
-    }
-    
-    .section-header h4 {
-        margin: 0;
-        font-size: 1rem;
-        font-weight: 600;
-        color: #000000;
-    }
-    
-    .popup-groups-container {
-        max-height: 400px;
-        min-height: 220px;
-        overflow-y: auto;
-    }
-    
-    .empty-state {
-        text-align: center;
-        padding: 24px;
-        background: rgba(0, 0, 0, 0.02);
-        border-radius: 8px;
-        margin: 8px 0;
-    }
-    
-    .empty-state h5 {
-        margin: 0 0 8px 0;
-        font-size: 0.9rem;
-        color: #000000;
-    }
-    
-    .empty-state p {
-        margin: 0;
-        font-size: 0.8rem;
-        color: rgba(0, 0, 0, 0.6);
-    }
-    
-    .popup-group-card {
-        background: rgba(0, 0, 0, 0.02);
-        border-radius: 8px;
-    }
-    
-    .popup-group-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 12px;
-    }
-    
-    .popup-group-header h5 {
-        margin: 0;
-        font-size: 0.9rem;
-        font-weight: 600;
-        color: #000000;
-    }
-    
-    .popup-group-actions {
-        display: flex;
-        gap: 8px;
-    }
-    
-    .btn-sm {
-        padding: 6px 12px;
-        font-size: 0.8rem;
-    }
-    
-    .popup-sites-list {
-        margin-top: 12px;
-    }
-    
-    .popup-site-item {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 8px;
-        background: rgba(255, 255, 255, 0.8);
-        border-radius: 6px;
-        margin-bottom: 8px;
-    }
-    
-    .popup-site-actions {
-        display: flex;
-        gap: 8px;
-    }
-    
-    .popup-site-info {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-    }
-    
-    .popup-site-icon {
-        width: 24px;
-        height: 24px;
-        border-radius: 4px;
-        background: rgba(0, 0, 0, 0.1);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 0.8rem;
-        font-weight: 600;
-    }
-    
-    .popup-site-details {
-        flex: 1;
-        min-width: 0;
-    }
-    
-    .popup-site-name {
-        font-size: 0.8rem;
-        font-weight: 500;
-        color: #000000;
-        margin-bottom: 2px;
-    }
-    
-    .popup-site-url {
-        font-size: 0.7rem;
-        color: rgba(0, 0, 0, 0.6);
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-    
-    /* 搜索引擎管理样式 */
-    .search-engines-management {
-        width: 100%;
-    }
-    
-    .engines-list {
-        margin-bottom: 20px;
-    }
-    
-    .engines-list h4 {
-        margin: 0 0 12px 0;
-        font-size: 1rem;
-        font-weight: 600;
-        color: #000000;
-    }
-    
-    .engine-item {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 12px;
-        background: rgba(255, 255, 255, 0.8);
-        border-radius: 8px;
-        margin-bottom: 8px;
-    }
-    
-    .engine-info {
-        flex: 1;
-        min-width: 0;
-    }
-    
-    .engine-name {
-        font-size: 0.9rem;
-        font-weight: 500;
-        color: #000000;
-        margin-bottom: 4px;
-    }
-    
-    .engine-url {
-        font-size: 0.75rem;
-        color: rgba(0, 0, 0, 0.6);
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-    
-    .engine-actions {
-        display: flex;
-        gap: 8px;
-    }
-    
-    /* 壁纸设置样式 */
-    .wallpaper-management {
-        width: 100%;
-    }
-    
-    .wallpaper-section {
-        margin-bottom: 32px;
-    }
-    
-    .wallpaper-section h4 {
-        margin: 0 0 16px 0;
-        font-size: 1rem;
-        font-weight: 600;
-        color: #000000;
-    }
-    
-    .wallpaper-section h5 {
-        margin: 0 0 12px 0;
-        font-size: 0.9rem;
-        font-weight: 600;
-        color: #000000;
-    }
-    
-    .upload-option {
-        margin-bottom: 20px;
-        padding: 16px;
-        background: rgba(0, 0, 0, 0.02);
-        border-radius: 8px;
-    }
-    
-    .wallpaper-previews {
-        display: flex;
-        gap: 12px;
-        overflow-x: auto;
-        overflow-y: hidden;
-        padding: 4px;
-        scroll-behavior: smooth;
-    }
-    
-    .wallpaper-previews::-webkit-scrollbar {
-        height: 6px;
-    }
-    
-    .wallpaper-previews::-webkit-scrollbar-track {
-        background: rgba(0, 0, 0, 0.05);
-        border-radius: 3px;
-    }
-    
-    .wallpaper-previews::-webkit-scrollbar-thumb {
-        background: rgba(0, 0, 0, 0.2);
-        border-radius: 3px;
-    }
-    
-    .wallpaper-previews::-webkit-scrollbar-thumb:hover {
-        background: rgba(0, 0, 0, 0.3);
-    }
-    
-    .wallpaper-preview {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        cursor: pointer;
-        padding: 8px;
-        border-radius: 8px;
-        transition: all 0.2s ease;
-        flex-shrink: 0;
-        min-width: 100px;
-    }
-    
-    .wallpaper-preview:hover {
-        background: rgba(0, 0, 0, 0.05);
-        transform: translateY(-2px);
-    }
-    
-    .wallpaper-preview.selected {
-        background: rgba(0, 0, 0, 0.1);
-        border: 2px solid rgba(0, 0, 0, 0.2);
-    }
-    
-    .wallpaper-thumbnail {
-        width: 80px;
-        height: 60px;
-        border-radius: 6px;
-        margin-bottom: 8px;
-        transition: all 0.2s ease;
-    }
-    
-    .wallpaper-thumbnail.white {
-        background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-    }
-    
-    .wallpaper-thumbnail.blue {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    }
-    
-    .wallpaper-thumbnail.green {
-        background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-    }
-    
-    .wallpaper-thumbnail.purple {
-        background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);
-    }
-    
-    .wallpaper-preview span {
-        font-size: 0.8rem;
-        color: #000000;
-        text-align: center;
-    }
-    
-    .upload-section {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        flex-wrap: wrap;
-    }
-    
-    .wallpaper-upload {
-        display: none;
-    }
-    
-    .upload-hint {
-        margin: 0;
-        font-size: 0.8rem;
-        color: rgba(0, 0, 0, 0.6);
-    }
-    
-    .url-section {
-        display: flex;
-        gap: 12px;
-        flex-wrap: wrap;
-    }
-    
-    .url-section .form-control {
-        flex: 1;
-        min-width: 200px;
-    }
-    
-    .url-wallpapers-list {
-        margin-top: 16px;
-        max-height: 200px;
-        overflow-y: auto;
-    }
-    
-    .url-wallpaper-item {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        padding: 8px;
-        background: rgba(0, 0, 0, 0.02);
-        border-radius: 6px;
-        margin-bottom: 8px;
-    }
-    
-    .url-wallpaper-item:last-child {
-        margin-bottom: 0;
-    }
-    
-    .url-wallpaper-thumbnail {
-        width: 60px;
-        height: 45px;
-        border-radius: 4px;
-        background-size: cover;
-        background-position: center;
-        flex-shrink: 0;
-    }
-    
-    .url-wallpaper-info {
-        flex: 1;
-        min-width: 0;
-    }
-    
-    .url-wallpaper-url {
-        font-size: 0.75rem;
-        color: rgba(0, 0, 0, 0.8);
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-    
-    .url-wallpaper-actions {
-        display: flex;
-        gap: 8px;
-    }
-    
-    .url-wallpaper-btn {
-        padding: 4px 8px;
-        font-size: 0.75rem;
-        border: none;
-        border-radius: 4px;
-        cursor: pointer;
-        transition: all 0.2s ease;
-    }
-    
-    .url-wallpaper-btn.apply {
-        background: rgba(0, 0, 0, 0.1);
-        color: #000000;
-    }
-    
-    .url-wallpaper-btn.apply:hover {
-        background: rgba(0, 0, 0, 0.2);
-    }
-    
-    .url-wallpaper-btn.delete {
-        background: rgba(255, 0, 0, 0.1);
-        color: #ff0000;
-    }
-    
-    .url-wallpaper-btn.delete:hover {
-        background: rgba(255, 0, 0, 0.2);
-    }
-    
-    /* 模态框样式 */
-    .modal {
-        display: none;
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background: rgba(0, 0, 0, 0.5);
-        backdrop-filter: blur(5px);
-        z-index: 2100;
-        align-items: center;
-        justify-content: center;
-    }
-    
-    .modal-content {
-        background: rgba(255, 255, 255, 0.85);
-        backdrop-filter: blur(20px);
-        -webkit-backdrop-filter: blur(20px);
-        border-radius: 16px;
-        padding: 10px;
-        width: 90%;
-        max-width: 400px;
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-        border: 1px solid rgba(255, 255, 255, 0.3);
-        transform: translateY(50px) scale(0.98);
-        opacity: 0;
-        transition: transform 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94), opacity 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-    }
-    
-    .modal-show .modal-content {
-        transform: translateY(0) scale(1);
-        opacity: 1;
-    }
-    
-    .modal-hide .modal-content {
-        transform: translateY(50px) scale(0.98);
-        opacity: 0;
-    }
-    
-    .modal-content h3 {
-        margin: 0 0 24px 0;
-        font-size: 1.3rem;
-        font-weight: 600;
-        color: #000000;
-        text-align: center;
-    }
-    
-    .modal-buttons {
-        display: flex;
-        justify-content: flex-end;
-        gap: 12px;
-        margin-top: 24px;
-    }
-    
-    /* 消息样式 */
-    .popup-message {
-        position: absolute;
-        top: 16px;
-        left: 50%;
-        transform: translateX(-50%);
-        background: rgba(0, 0, 0, 0.8);
-        color: #ffffff;
-        padding: 8px 16px;
-        border-radius: 20px;
-        font-size: 0.8rem;
-        z-index: 2200;
-        display: none;
-    }
-    
-    .wallpaper-delete-btn {
-        position: absolute;
-        top: 8px;
-        right: 8px;
-        width: 24px;
-        height: 24px;
-        border: none;
-        border-radius: 50%;
-        background: rgba(0, 0, 0, 0.6);
-        color: #ffffff;
-        font-size: 16px;
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        opacity: 0;
-        transition: all 0.2s ease;
-        z-index: 10;
-    }
-    
-    .wallpaper-preview:hover .wallpaper-delete-btn {
-        opacity: 1;
-    }
-    
-    .wallpaper-delete-btn:hover {
-        background: rgba(220, 38, 38, 0.8);
-        transform: scale(1.1);
-    }
-`;
-document.head.appendChild(style);
 
 // 初始化设置界面
 async function initPopupSettingsManagement(popupContent) {
@@ -3033,6 +2725,53 @@ async function initPopupSettingsManagement(popupContent) {
         iconApiUrlInput.value = settings.iconApiUrl;
     }
 
+    // 图标缓存：提示当前图标源能不能被缓存，并给出清空入口
+    const iconCacheApi = (typeof iconCache !== 'undefined' && iconCache) ? iconCache : null;
+    const cacheHint = popupContent.querySelector('#icon-cache-hint');
+    const cacheStatus = popupContent.querySelector('#icon-cache-status');
+
+    function currentApiTemplate() {
+        return (iconApiUrlInput && iconApiUrlInput.value.trim()) || DEFAULT_ICON_API;
+    }
+
+    function refreshCacheHint() {
+        if (!cacheHint) return;
+        if (!iconCacheApi) { cacheHint.textContent = ''; return; }
+        // 名单直接问浏览器要，保证和 manifest 永远一致
+        const allowed = iconCacheApi.isUrlAllowed(currentApiTemplate().replace('{domain}', 'example.com'));
+        if (allowed === null) {
+            cacheHint.textContent = ''; // 不在扩展环境里（本地预览），不误报
+        } else if (allowed) {
+            // 一切正常时不显示任何提示，只在图标源不在名单里时才给出警告
+            cacheHint.textContent = '';
+        } else {
+            cacheHint.textContent = '这个图标源不在扩展的可访问名单里：图标照常显示，但不会被缓存。';
+            cacheHint.style.color = '#c62828';
+        }
+    }
+
+    function refreshCacheStatus() {
+        if (!cacheStatus || !iconCacheApi) return;
+        cacheStatus.textContent = '已缓存 ' + iconCacheApi.count() + ' 个图标，' +
+            iconCacheApi.TTL_DAYS + ' 天后自动重新抓取。';
+    }
+
+    refreshCacheHint();
+    refreshCacheStatus();
+    if (iconApiUrlInput) iconApiUrlInput.addEventListener('input', refreshCacheHint);
+
+    const clearCacheButton = popupContent.querySelector('#clear-icon-cache');
+    if (clearCacheButton) {
+        clearCacheButton.addEventListener('click', async () => {
+            if (!iconCacheApi) return;
+            clearCacheButton.disabled = true;
+            await iconCacheApi.clearAll();
+            clearCacheButton.disabled = false;
+            refreshCacheStatus();
+            showMessage('图标缓存已清空，下次打开会重新抓取');
+        });
+    }
+
     // 绑定保存设置按钮
     const saveSettingsButton = popupContent.querySelector('#save-settings');
     if (saveSettingsButton) {
@@ -3041,7 +2780,13 @@ async function initPopupSettingsManagement(popupContent) {
                 iconApiUrl: iconApiUrlInput.value.trim()
             };
             if (saveSettings(newSettings)) {
+                // 换了图标源也**不清缓存**：抽屉是按域名存的，跟这张图是哪个源抓来的无关。
+                // 清掉的话换一次源全部图标都要重抓，当前源拿不到的那几个就集体退回字母。
+                // 只把新源记进历史，供「这个源拿不到就换那个源」兜底。
+                rememberIconApi(newSettings.iconApiUrl || DEFAULT_ICON_API);
                 showMessage('设置已保存');
+                refreshCacheHint();
+                refreshCacheStatus();
                 // 重新渲染快捷方式以应用新的图标 API
                 renderShortcuts();
             } else {
@@ -3049,4 +2794,163 @@ async function initPopupSettingsManagement(popupContent) {
             }
         });
     }
+}
+
+// ============================================================
+// 扩展桥接：支持「点扩展图标收藏」和「右键菜单收藏」
+// ------------------------------------------------------------
+// 起始页与弹窗（popup.html）同属 chrome-extension://<id> 同一源，直接共用同一个
+// localStorage，所以弹窗能直接读写 startpage-data。
+// 但 background service worker 里没有 localStorage，它只能往 chrome.storage.local 写，
+// 因此约定两个桥接键：
+//   - groups-mirror：分组列表镜像，供右键菜单拼出分组子项
+//   - pending-sites：待归类队列，由起始页 / 弹窗在读取时合并进 startpage-data
+// 数据仍然以 localStorage['startpage-data'] 为唯一权威来源。
+// ============================================================
+
+const QDB_MIRROR_KEY = 'groups-mirror';
+const QDB_PENDING_KEY = 'pending-sites';
+const QDB_INBOX_GROUP_NAME = '待分组';
+
+function qdbHasBridge() {
+    return typeof chrome !== 'undefined' && !!chrome.storage && !!chrome.storage.local;
+}
+
+function qdbBridgeGet(key) {
+    return new Promise(resolve => {
+        if (!qdbHasBridge()) return resolve(undefined);
+        try {
+            chrome.storage.local.get(key, function(result) {
+                resolve(result ? result[key] : undefined);
+            });
+        } catch (error) {
+            console.error('Bridge read error:', error);
+            resolve(undefined);
+        }
+    });
+}
+
+function qdbBridgeSet(payload) {
+    return new Promise(resolve => {
+        if (!qdbHasBridge()) return resolve(false);
+        try {
+            chrome.storage.local.set(payload, function() {
+                // 顺带把「写成功了没」告诉调用方，分组镜像靠它决定要不要记指纹
+                resolve(!chrome.runtime.lastError);
+            });
+        } catch (error) {
+            console.error('Bridge write error:', error);
+            resolve(false);
+        }
+    });
+}
+
+// 归一化 URL，用于判重（忽略锚点和结尾斜杠）
+function qdbNormalizeUrl(url) {
+    try {
+        const parsed = new URL(url);
+        parsed.hash = '';
+        return parsed.href.replace(/\/$/, '');
+    } catch (error) {
+        return String(url || '');
+    }
+}
+
+// 把分组列表镜像给后台，右键菜单靠它拼子项。
+// 内容没变就**不写盘**：这个函数每次 renderShortcuts() 都会调，
+// 而原来开一个新标签页会往 chrome.storage 写两次完全相同的分组列表
+// （renderShortcuts 一次、qdbInitBridge 一次），纯属白跑 IPC + 落盘。
+let qdbMirrorFingerprint = null;
+
+function qdbSyncGroupsMirror(groups) {
+    if (!qdbHasBridge()) return Promise.resolve();
+    const list = (Array.isArray(groups) ? groups : []).map(function(group) {
+        return { id: group.id, name: group.name };
+    });
+    const fingerprint = JSON.stringify(list);
+    if (fingerprint === qdbMirrorFingerprint) return Promise.resolve();
+
+    return qdbBridgeSet({ [QDB_MIRROR_KEY]: list }).then(function(ok) {
+        // 只在真的写成功后才记指纹；写失败就不记，下次开新标签页会自己重试
+        if (ok) qdbMirrorFingerprint = fingerprint;
+    });
+}
+
+// 把右键菜单攒下的网站合并进 startpage-data，然后清空队列
+async function qdbDrainPendingSites() {
+    if (!qdbHasBridge()) return 0;
+    const pending = await qdbBridgeGet(QDB_PENDING_KEY);
+    if (!Array.isArray(pending) || pending.length === 0) return 0;
+
+    const data = await loadShortcutsData();
+    if (!Array.isArray(data.groups)) data.groups = [];
+
+    let added = 0;
+    pending.forEach(function(item, index) {
+        if (!item || !item.url) return;
+
+        // 指定的分组可能已经被删掉了，这种情况落到「待分组」里，不丢数据
+        let group = item.groupId ? data.groups.find(g => g.id === item.groupId) : null;
+        if (!group) {
+            group = data.groups.find(g => g.name === QDB_INBOX_GROUP_NAME);
+            if (!group) {
+                group = { id: `${Date.now()}-${index}`, name: QDB_INBOX_GROUP_NAME, sites: [] };
+                data.groups.push(group);
+            }
+        }
+        if (!Array.isArray(group.sites)) group.sites = [];
+
+        const target = qdbNormalizeUrl(item.url);
+        if (group.sites.some(site => qdbNormalizeUrl(site.url) === target)) return;
+
+        group.sites.push({
+            id: `${group.id}-${Date.now()}-${index}`,
+            name: item.name || target,
+            url: item.url
+        });
+        added++;
+    });
+
+    writeStartpageData(data);
+    await qdbBridgeSet({ [QDB_PENDING_KEY]: [] });
+    return added;
+}
+
+// 初始化桥接：先结算积压的收藏，再挂上后续的同步监听
+async function qdbInitBridge() {
+    if (!qdbHasBridge()) return;
+
+    try {
+        const added = await qdbDrainPendingSites();
+        if (added > 0) {
+            await renderShortcuts();
+            showMessage(`已从右键菜单添加 ${added} 个网站`);
+        }
+        // 队列为空时不用再同步分组镜像：renderShortcuts() 已经同步过，
+        // 而且 qdbSyncGroupsMirror() 现在内容没变就不写盘
+    } catch (error) {
+        console.error('Bridge init error:', error);
+    }
+
+    // 后台写入待归类队列时（起始页正开着）实时同步
+    try {
+        chrome.storage.onChanged.addListener(async function(changes, areaName) {
+            if (areaName !== 'local' || !changes[QDB_PENDING_KEY]) return;
+            const added = await qdbDrainPendingSites();
+            if (added > 0) {
+                await renderShortcuts();
+                showMessage(`已从右键菜单添加 ${added} 个网站`);
+            }
+        });
+    } catch (error) {
+        console.error('Bridge listener error:', error);
+    }
+
+    // 弹窗写的是同一个 localStorage，靠 storage 事件同步；
+    // 写入方自己不会收到该事件，所以这里不会自激成循环
+    window.addEventListener('storage', function(event) {
+        if (event.key === 'startpage-data') {
+            renderShortcuts();
+        }
+    });
 }

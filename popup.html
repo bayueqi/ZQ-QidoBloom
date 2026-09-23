@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>添加到「琪窦初开」</title>
+    <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+    <div class="pp">
+        <header class="pp-head">
+            <div class="pp-logo">
+                <img src="icons.png" alt="琪窦初开">
+            </div>
+            <div class="pp-head-text">
+                <h1>添加到分组</h1>
+                <p id="pp-subtitle">读取当前页面…</p>
+            </div>
+        </header>
+
+        <div id="pp-alert" class="pp-alert" hidden></div>
+
+        <section class="pp-card" id="pp-card">
+            <div class="pp-icon">
+                <img id="pp-favicon" alt="">
+                <span id="pp-fallback" hidden></span>
+            </div>
+            <div class="pp-card-body">
+                <input id="pp-name" class="pp-input" type="text" maxlength="60" placeholder="网站名称">
+                <div id="pp-url" class="pp-url"></div>
+            </div>
+        </section>
+
+        <section class="pp-field">
+            <label class="pp-label" for="pp-group">保存到分组</label>
+            <select id="pp-group" class="pp-select"></select>
+        </section>
+
+        <section class="pp-newgroup" id="pp-newgroup" hidden>
+            <input id="pp-newgroup-name" class="pp-input" type="text" maxlength="20" placeholder="新分组名称">
+            <button id="pp-newgroup-save" class="pp-btn pp-btn-ghost" type="button">创建</button>
+        </section>
+
+        <footer class="pp-foot">
+            <button id="pp-save" class="pp-btn pp-btn-primary" type="button">保存到分组</button>
+            <button id="pp-toggle-newgroup" class="pp-btn pp-btn-ghost" type="button">新建分组</button>
+        </footer>
+    </div>
+
+    <script src="popup.js"></script>
+</body>
+</html>

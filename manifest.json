@@ -1,13 +1,26 @@
 {
   "manifest_version": 3,
   "name": "琪窦初开",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "description": "美观实用的自定义浏览器起始页",
+  "permissions": [
+    "activeTab",
+    "contextMenus",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://toolb.cn/*",
+    "https://htmlico.520jacky.dpdns.org/*"
+  ],
   "action": {
-    "default_title": "打开起始页"
+    "default_title": "添加到「琪窦初开」",
+    "default_popup": "popup.html"
   },
   "icons": {
     "128": "icons.png"
+  },
+  "background": {
+    "service_worker": "background.js"
   },
   "chrome_url_overrides": {
     "newtab": "index.html"

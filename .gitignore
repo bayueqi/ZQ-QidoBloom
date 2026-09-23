@@ -1,0 +1,14 @@
+# 本地工具目录（记忆、自检脚本、渲染产物），不入库
+.workbuddy/
+
+# 系统/编辑器噪音
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*.tmp
+
+# 打包与依赖
+node_modules/
+dist/
+*.zip
