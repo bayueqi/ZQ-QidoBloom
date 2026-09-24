@@ -839,13 +839,8 @@ function bindShortcutsDragOnce() {
         const group = event.target.closest('.shortcut-group');
         if (!item && !group) return;
         event.preventDefault();
-        if (!event.dataTransfer) return;
-
-        if (item && draggedItem) {
-            // 只允许在同一个分组内换位置
-            event.dataTransfer.dropEffect =
-                draggedItem.closest('.shortcut-items') === item.closest('.shortcut-items') ? 'move' : 'none';
-        } else if (!item && draggedGroup) {
+        // 拖网站：同组换位、跨组移动都允许；拖分组：允许换序
+        if (event.dataTransfer && (draggedItem || (group && draggedGroup))) {
             event.dataTransfer.dropEffect = 'move';
         }
     });
@@ -853,17 +848,11 @@ function bindShortcutsDragOnce() {
     container.addEventListener('dragenter', function (event) {
         const item = event.target.closest('.shortcut-item');
         if (item) {
-            if (draggedItem && draggedItem !== item &&
-                draggedItem.closest('.shortcut-items') === item.closest('.shortcut-items')) {
-                item.classList.add('drag-over');
-            }
+            if (draggedItem && draggedItem !== item) item.classList.add('drag-over');
             return;
         }
         const group = event.target.closest('.shortcut-group');
-        // 正在拖网站时不接受停在分组上
-        if (group && draggedGroup && draggedGroup !== group && !draggedItem) {
-            group.classList.add('drag-over');
-        }
+        if (group && draggedGroup && draggedGroup !== group) group.classList.add('drag-over');
     });
 
     container.addEventListener('dragleave', function (event) {
@@ -880,30 +869,44 @@ function bindShortcutsDragOnce() {
 
     container.addEventListener('drop', async function (event) {
         const item = event.target.closest('.shortcut-item');
-        if (item) {
-            event.preventDefault();
-            item.classList.remove('drag-over');
-            if (!draggedItem || draggedItem === item) return;
+        const group = event.target.closest('.shortcut-group');
+        if (!item && !group) return;
+        event.preventDefault();
 
-            const parentContainer = item.closest('.shortcut-items');
-            if (parentContainer !== draggedItem.closest('.shortcut-items')) return;
+        // ---- 拖网站：落到图标上就插到它前/后，落到分组空白处就移到该分组末尾 ----
+        if (draggedItem) {
+            let reference = null;
+            let targetContainer;
+            if (item) {
+                item.classList.remove('drag-over');
+                if (draggedItem === item) return;
+                reference = item;
+                targetContainer = item.closest('.shortcut-items');
+            } else {
+                targetContainer = group.querySelector('.shortcut-items');
+            }
+            if (!targetContainer) return;
 
-            const itemsArray = Array.from(parentContainer.children);
-            const draggedIndex = itemsArray.indexOf(draggedItem);
-            const dropIndex = itemsArray.indexOf(item);
-            if (draggedIndex === -1 || dropIndex === -1) return;
-
-            parentContainer.insertBefore(draggedItem, draggedIndex < dropIndex ? item.nextSibling : item);
-            await saveNewSiteOrder(parentContainer);
+            if (reference) {
+                const siblings = Array.from(targetContainer.children);
+                const from = siblings.indexOf(draggedItem);
+                const to = siblings.indexOf(reference);
+                if (to === -1) return;
+                // 同组内按拖动方向决定插到目标前还是后；跨组时 from 为 -1，插到目标前
+                targetContainer.insertBefore(
+                    draggedItem,
+                    from !== -1 && from < to ? reference.nextSibling : reference
+                );
+            } else if (targetContainer !== draggedItem.parentElement) {
+                targetContainer.appendChild(draggedItem);
+            }
+            await saveSiteLayout();
             return;
         }
 
-        const group = event.target.closest('.shortcut-group');
-        if (!group) return;
-        event.preventDefault();
+        // ---- 拖分组 ----
+        if (!group || !draggedGroup || draggedGroup === group) return;
         group.classList.remove('drag-over');
-        // 正在拖网站时不处理分组排序
-        if (draggedItem || !draggedGroup || draggedGroup === group) return;
 
         const groupsContainer = group.parentElement;
         const groupsArray = Array.from(groupsContainer.children);
@@ -923,27 +926,57 @@ function bindShortcutsDragOnce() {
         clearDragOver();
     });
 
-    // 保存新的网站排序
-    async function saveNewSiteOrder(siteContainer) {
+    // 保存图标的落位：同组换位置、跨组移动都走这里。
+    // 以 DOM 为准重建每个分组的 sites 顺序 —— 跨组移动会同时动到两个分组，
+    // 只重算一个分组会把「移出去的那个」留在原分组里。站点对象本身仍从原数据取，不丢字段。
+    async function saveSiteLayout() {
         try {
-            const groupElement = siteContainer.closest('.shortcut-group');
-            if (!groupElement) return;
-            const groupId = groupElement.dataset.groupId;
-            const siteIds = Array.from(siteContainer.querySelectorAll('.shortcut-item'))
-                .map(item => item.dataset.siteId)
-                .filter(Boolean);
-
             const data = readStartpageData();
-            const group = data.groups.find(g => g.id === groupId);
-            if (!group) return;
 
-            const originalSites = group.sites;
-            group.sites = siteIds
-                .map(id => originalSites.find(site => site.id === id))
-                .filter(Boolean);
+            const siteById = new Map();
+            data.groups.forEach(group => {
+                (group.sites || []).forEach(site => {
+                    if (site && site.id) siteById.set(site.id, site);
+                });
+            });
+
+            // 先统计「这一轮页面上真正渲染出来的站点 id 全集」。
+            // 兜底不能按单个分组判断：跨组移动后，被拖的站点恰好满足
+            //「不在原分组的 DOM 里、却还在原分组的 sites 里」，会被原分组又补回一份，
+            // 两个分组各留一个 —— 当次 DOM 是对的不易察觉，刷新后才暴露。
+            const rendered = new Set();
+            container.querySelectorAll('.shortcut-item').forEach(el => {
+                if (el.dataset.siteId) rendered.add(el.dataset.siteId);
+            });
+
+            container.querySelectorAll('.shortcut-group').forEach(groupElement => {
+                const group = data.groups.find(g => g.id === groupElement.dataset.groupId);
+                const itemsContainer = groupElement.querySelector('.shortcut-items');
+                if (!group || !itemsContainer) return;
+
+                const placed = new Set();
+                const next = [];
+                itemsContainer.querySelectorAll('.shortcut-item').forEach(itemElement => {
+                    const id = itemElement.dataset.siteId;
+                    const site = id ? siteById.get(id) : null;
+                    if (!site || placed.has(id)) return;
+                    placed.add(id);
+                    next.push(site);
+                });
+                // 真正没在任何分组露面的站点接在后面，别丢数据
+                (group.sites || []).forEach(site => {
+                    if (site && site.id && !placed.has(site.id) && !rendered.has(site.id)) {
+                        placed.add(site.id);
+                        next.push(site);
+                    }
+                });
+
+                group.sites = next;
+            });
+
             writeStartpageData(data);
         } catch (error) {
-            console.error('Save site order error:', error);
+            console.error('Save site layout error:', error);
         }
     }
 
