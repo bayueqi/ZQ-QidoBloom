@@ -6,9 +6,10 @@
  *    而且 base64 会再膨胀三分之一。IndexedDB 是异步的、能直接存二进制、不受 5MB 限制。
  * 2. 启动时把整张表一次性读进内存（host -> blob: 地址），所以渲染仍然可以同步查表，
  *    不需要把 renderShortcuts 改成异步。
- * 3. 缓存键用「域名」而不是完整网址，也**不含图标源** —— 同一个站点改了路径或参数照样命中，
- *    换了图标源也不会让已经存好的图失效。换源时接着用旧源存下来的图，是刻意的：
- *    在用户眼里那就是"这个站的图标"，不该因为换了源就变回字母。
+ * 3. 缓存键用「域名」而不是完整网址 —— 同一个站点改了路径或参数照样命中。
+ *    但每条记录额外记住「这张图是哪个图标源抓来的」（src 字段），因为规则是：
+ *    **当前源优先，抓到了就覆盖旧图；抓不到才继续用旧图**。所以换源之后旧源的图不会被
+ *    无脑丢掉 —— 它是当前源拿不到图时的兜底 —— 但只要当前源能拿到，就会被换掉。
  * 4. 任何一步出错都静默跳过：抓不到、存不进、读不出，都退回原来的行为，不报错不弹窗。
  *    **不要**在切换图标源时清空缓存（曾经这么写过，结果换源 = 全部重抓 = 图标集体变字母）。
  */
@@ -18,11 +19,13 @@
     const DB_NAME = 'qdb-icon-cache';
     const DB_VERSION = 1;
     const STORE_NAME = 'icons';
-    const TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 天。过期后重新抓一次，网站换了 logo 能跟上
+    const TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 天。同源也会过期重抓一次，跟得上网站换 logo；
+                                             // 但抓不到时旧图留着兜底，不是一过期就丢掉
     const MAX_ICON_BYTES = 512 * 1024;       // 单张上限，防止把错误页整页存进来
     const MAX_CONCURRENT = 6;                // 浏览器对同一域名的并发上限也就是 6 左右
 
     const memUrls = Object.create(null);   // host -> blob: 地址，渲染时同步查这张表
+    const memMeta = Object.create(null);   // host -> { src, at }：这张图是哪个源抓的、什么时候存的
     const attempted = Object.create(null); // host -> true，本次会话已试过，不重复试
     let dbPromise = null;
     let loaded = false;
@@ -76,15 +79,16 @@
                     return;
                 }
                 request.onsuccess = function () {
-                    const now = Date.now();
-                    const expired = [];
                     (request.result || []).forEach(function (row) {
                         if (!row || !row.host || !row.blob) return;
-                        if (now - (row.at || 0) > TTL_MS) { expired.push(row.host); return; }
                         const url = toObjectUrl(row.blob);
-                        if (url) memUrls[row.host] = url;
+                        if (!url) return;
+                        memUrls[row.host] = url;
+                        // 老记录没有 src 字段，当作「来历不明」：与当前源一比就会重抓一次并覆盖，
+                        // 正好把这次改动之前攒下的图刷新成当前源的。
+                        memMeta[row.host] = { src: row.src || '', at: row.at || 0 };
                     });
-                    if (expired.length) removeHosts(expired);
+                    // 过期的**不删**：当前源抓不到时它就是兜底。要不要重抓交给 needsFetch 判断。
                     resolve();
                 };
                 request.onerror = function () { resolve(); };
@@ -105,13 +109,14 @@
         return Object.keys(memUrls).length;
     }
 
-    function persist(host, blob) {
+    // src 记下「这张图是哪个源抓的」，下次开新标签页靠它判断要不要拿当前源重抓一遍
+    function persist(host, blob, src) {
         return openDb().then(function (db) {
             if (!db) return false;
             return new Promise(function (resolve) {
                 try {
                     const tx = db.transaction(STORE_NAME, 'readwrite');
-                    tx.objectStore(STORE_NAME).put({ host: host, blob: blob, at: Date.now() });
+                    tx.objectStore(STORE_NAME).put({ host: host, blob: blob, at: Date.now(), src: src || '' });
                     tx.oncomplete = function () { resolve(true); };
                     tx.onerror = function () { resolve(false); };
                 } catch (error) {
@@ -121,21 +126,17 @@
         });
     }
 
-    function removeHosts(hosts) {
-        return openDb().then(function (db) {
-            if (!db) return;
-            hosts.forEach(function (host) {
-                delete memUrls[host];
-                delete attempted[host];
-            });
-            try {
-                const tx = db.transaction(STORE_NAME, 'readwrite');
-                const store = tx.objectStore(STORE_NAME);
-                hosts.forEach(function (host) { store.delete(host); });
-            } catch (error) {
-                /* 删不掉也无所谓，反正内存里已经拿掉了 */
-            }
-        });
+    /**
+     * 这个域名要不要去当前源抓一次？
+     * 三种情况要抓：① 本地一张都没有；② 手里那张不是当前源抓的（换过源）；
+     * ③ 手里那张是当前源的但过期了（重抓一次，网站换了 logo 能跟上）。
+     * 三种都不是就直接用手里的图，省一次请求。
+     */
+    function needsFetch(host, srcKey, now) {
+        const meta = memMeta[host];
+        if (!meta) return true;
+        if (meta.src !== srcKey) return true;
+        return now - meta.at > TTL_MS;
     }
 
     // 真正去把图标抓回来。任何一步不对就抛错，由调用方静默吞掉。
@@ -153,9 +154,10 @@
     }
 
     /**
-     * 依次试候选图标源，谁先成功就用谁的。
-     * 站点图标的覆盖面各家不一样：同一个站，A 源有、B 源没有（比如 B 站 htmlico 拿不到、
-     * toolb 能拿到）。所以第一个源失败就自动换下一个，全都失败才放弃。
+     * 按顺序试候选图标源，谁先成功就用谁的。
+     * 调用方目前只传一个源 —— 就是用户在设置里填的那个。换源之后不该再偷偷去问旧源
+     * （曾经是「当前源 → 历史源 → 内置默认源」三级兜底，用户换源后旧源照样被请求，控制台一屏 404）。
+     * 这里仍收数组，只是让缓存层不认识「源」是什么，只负责依次试。
      */
     function fetchFromAny(host, sources, index) {
         if (index >= sources.length) return Promise.reject(new Error('所有图标源都没拿到'));
@@ -177,15 +179,20 @@
      * @param {Array<function>|function} urlFors
      *        候选图标源，按优先级排列，每项是 host => 地址。传单个函数也兼容。
      * @param {function} onReady          抓成功后回调 (host, blobUrl)，用于就地换图
+     * @param {string} srcKey             当前图标源的标识（直接用源的模板字符串）。会存进缓存记录，
+     *                                    下次靠它判断「手里这张图是不是当前源的」。缺省时退回
+     *                                    「有图就不抓」的旧行为。
      */
-    function schedule(hosts, urlFors, onReady) {
+    function schedule(hosts, urlFors, onReady, srcKey) {
         const sources = (Array.isArray(urlFors) ? urlFors : [urlFors]).filter(function (fn) {
             return typeof fn === 'function';
         });
         if (!sources.length) return;
 
+        const key = String(srcKey || '');
+        const now = Date.now();
         const queue = (hosts || []).filter(function (host) {
-            return host && !memUrls[host] && !attempted[host];
+            return host && !attempted[host] && needsFetch(host, key, now);
         });
         if (!queue.length) return;
         queue.forEach(function (host) { attempted[host] = true; });
@@ -202,12 +209,14 @@
                     active--;
                     if (!url) { pump(); return; }
                     memUrls[host] = url;
-                    persist(host, blob);
+                    memMeta[host] = { src: key, at: Date.now() };
+                    persist(host, blob, key);
                     if (typeof onReady === 'function') onReady(host, url);
                     pump();
                 }).catch(function () {
                     active--;
-                    // 所有源都抓不到就当没这回事。不开重试、不刷日志，下次开新标签页会自动再试一次。
+                    // 抓不到就**保持手里那张图不动**（有的话）—— 这就是「新源拿不到就用旧图」。
+                    // 不重试、不刷日志，下次开新标签页会自动再试一次。
                     pump();
                 });
             }
@@ -220,6 +229,7 @@
         Object.keys(memUrls).forEach(function (host) {
             try { URL.revokeObjectURL(memUrls[host]); } catch (error) { /* ignore */ }
             delete memUrls[host];
+            delete memMeta[host];
         });
         Object.keys(attempted).forEach(function (host) { delete attempted[host]; });
 

@@ -1143,7 +1143,11 @@ function getDefaultShortcutsData() {
 }
 
 // ---- 图标缓存接入 ----
-// 图标地址优先级：站点自带图标 > 本地抽屉里存的 > 图标 API（老办法）
+// 渲染时（同步）能拿到的优先级：站点自带图标 > 本地抽屉里存的图 > 图标 API 直链（老办法）
+//
+// 注意抽屉里那张图**未必是当前图标源抓的**。这里先用它把格子填上（有图总比字母强），
+// 随后 warmIconCache 会拿当前源去抓一次：抓到了就换掉这张图并覆盖缓存记录，
+// 抓不到就保持原样。也就是「当前源优先，旧图兜底」。
 function resolveIconSrc(site, host, iconApi) {
     if (site.icon && (site.icon.startsWith('http') || site.icon.startsWith('data:'))) {
         return site.icon;
@@ -1152,53 +1156,23 @@ function resolveIconSrc(site, host, iconApi) {
     return cached || iconApi.replace('{domain}', host);
 }
 
-// 用过的图标源记一份，作为「这个源拿不到就换那个源」的兜底候选。
-// 只记模板字符串（一百来字节），不记图。
-const ICON_API_HISTORY_KEY = 'startpage-faviconapi-history';
-const ICON_API_HISTORY_MAX = 5;
-
-function readIconApiHistory() {
-    try {
-        const raw = localStorage.getItem(ICON_API_HISTORY_KEY);
-        const list = raw ? JSON.parse(raw) : [];
-        return Array.isArray(list) ? list.filter(t => typeof t === 'string' && t) : [];
-    } catch (error) {
-        return [];
-    }
-}
-
-function rememberIconApi(template) {
-    const value = String(template || '').trim();
-    if (!value) return;
-    try {
-        const list = readIconApiHistory();
-        if (list[0] === value) return; // 没变就别白写一次盘
-        const next = [value, ...list.filter(t => t !== value)].slice(0, ICON_API_HISTORY_MAX);
-        localStorage.setItem(ICON_API_HISTORY_KEY, JSON.stringify(next));
-    } catch (error) {
-        /* 记不下就算了，只是少一个兜底候选，不影响图标显示 */
-    }
-}
-
-// 候选图标源，按优先级：当前源 → 历史用过的源 → 内置默认源。
-// 不在扩展可访问名单里的会直接跳过：fetch 必然被拦，试了也是白试，还刷一屏报错。
+// 图标源只有一个：用户在设置里填的那个。
+//
+// 这里原先有条「当前源 → 历史用过的源 → 内置默认源」的兜底链，是个坑：
+// 用户换了图标源之后，旧源（内置的 toolb.cn，以及历史里攒下的旧地址）照样会被请求，
+// 新源拿不到的站就回头去问旧源，控制台一屏 404 —— 等于把「我不用这个源了」当没发生。
+// 现在源拿不到图就退回字母图标，不再去问任何别的源。
 function getIconApiCandidates() {
     const current = getIconApiUrl();
-    const ordered = [current, ...readIconApiHistory(), DEFAULT_ICON_API];
-    const seen = new Set();
-    const candidates = [];
 
-    ordered.forEach(template => {
-        if (!template || seen.has(template)) return;
-        seen.add(template);
-        if (typeof iconCache !== 'undefined' && iconCache) {
-            const allowed = iconCache.isUrlAllowed(template.replace('{domain}', 'example.com'));
-            if (allowed === false) return; // 明确不在名单里
-        }
-        candidates.push(template);
-    });
+    // 不在扩展可访问名单里的源直接跳过：fetch 必然被拦，试了也是白试，还刷一屏报错。
+    //（<img> 本身照样能显示，只是这类图存不进本地抽屉。）
+    if (typeof iconCache !== 'undefined' && iconCache) {
+        const allowed = iconCache.isUrlAllowed(current.replace('{domain}', 'example.com'));
+        if (allowed === false) return [];
+    }
 
-    return candidates.length ? candidates : [current];
+    return [current];
 }
 
 // 把抽屉读进内存。读不出来就当作空抽屉，页面照常跑。
@@ -1253,9 +1227,10 @@ function warmIconCache(hosts, container) {
     if (typeof iconCache === 'undefined' || !iconCache || !container) return;
     const unique = [...new Set((hosts || []).filter(Boolean))];
     if (!unique.length) return;
-    // 候选源按优先级排好交给缓存层：当前源失败会自动换下一个源再试
+    // 候选源按优先级排好交给缓存层；末尾把「当前源」的标识一起带上，缓存层据此判断
+    // 手里那张图要不要重抓（旧源抓的 / 已过期 → 抓；当前源抓的且没过期 → 跳过）。
     const urlFors = getIconApiCandidates().map(template => host => template.replace('{domain}', host));
-    iconCache.schedule(unique, urlFors, (host, blobUrl) => applyCachedIcon(host, blobUrl, container));
+    iconCache.schedule(unique, urlFors, (host, blobUrl) => applyCachedIcon(host, blobUrl, container), getIconApiUrl());
 }
 
 // 渲染快捷方式
@@ -1341,8 +1316,6 @@ async function applyWallpaper() {
 window.addEventListener('DOMContentLoaded', async function() {
     // 先把壁纸数据从 startpage-data 里迁到独立键（一次性、幂等、失败安全）
     migrateWallpaperStorage();
-    // 把当前用的图标源记进历史，作为「这个源拿不到就换那个源」的兜底候选
-    rememberIconApi(getIconApiUrl());
     // 把本地图标抽屉读进内存：渲染时才能同步命中，不必把渲染改成异步
     await loadIconCache();
     await initNewSearch();
@@ -2815,8 +2788,6 @@ async function initPopupSettingsManagement(popupContent) {
             if (saveSettings(newSettings)) {
                 // 换了图标源也**不清缓存**：抽屉是按域名存的，跟这张图是哪个源抓来的无关。
                 // 清掉的话换一次源全部图标都要重抓，当前源拿不到的那几个就集体退回字母。
-                // 只把新源记进历史，供「这个源拿不到就换那个源」兜底。
-                rememberIconApi(newSettings.iconApiUrl || DEFAULT_ICON_API);
                 showMessage('设置已保存');
                 refreshCacheHint();
                 refreshCacheStatus();
