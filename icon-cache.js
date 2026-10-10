@@ -248,16 +248,12 @@
         });
     }
 
-    /**
-     * 这个图标地址是否在扩展的「可访问名单」里。
-     * 名单就是 manifest.json 的 host_permissions —— 不写进去，浏览器就不让读，也就存不了。
-     * 直接问浏览器要名单，避免代码里再抄一份、两边对不上。
-     * @returns {boolean|null} null 表示不在扩展环境里，判断不了
-     */
+    // URL 是否在 host_permissions 名单内，不在的 fetch 会被拦、只能靠 <img> 显示。
+    // 按 Chrome 的 match pattern 匹配，host 段星号即放行任意图标源。返回 null = 不在扩展环境。
     function isUrlAllowed(url) {
-        let hostname;
+        let target;
         try {
-            hostname = new URL(url).hostname;
+            target = new URL(url);
         } catch (error) {
             return false;
         }
@@ -268,12 +264,30 @@
             return null; // 直接打开页面预览时走这里，不是真的没权限
         }
         return patterns.some(function (pattern) {
-            try {
-                return new URL(pattern.replace(/\*$/, '')).hostname === hostname;
-            } catch (error) {
-                return false;
-            }
+            return matchPattern(target, pattern);
         });
+    }
+
+    // 单个 match pattern 命不命中（只看 scheme 和 host，路径不影响能不能 fetch）
+    function matchPattern(target, pattern) {
+        if (pattern === '<all_urls>') return true;
+        const parts = /^([^:]+):\/\/(.+?)\//.exec(pattern);
+        if (!parts) return false;
+        if (parts[1] !== '*' && parts[1] !== target.protocol.slice(0, -1)) return false;
+
+        const authority = parts[2];
+        const colon = authority.indexOf(':');
+        const hostPart = colon === -1 ? authority : authority.slice(0, colon);
+        const portPart = colon === -1 ? '' : authority.slice(colon + 1);
+
+        if (hostPart === '*') return !portPart || portPart === '*' || portPart === target.port;
+        if (hostPart.indexOf('*.') === 0) {
+            const bare = hostPart.slice(2);
+            if (target.hostname !== bare && !target.hostname.endsWith('.' + bare)) return false;
+        } else if (hostPart !== target.hostname) {
+            return false;
+        }
+        return !portPart || portPart === '*' || portPart === target.port;
     }
 
     global.iconCache = {
