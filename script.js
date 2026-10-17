@@ -74,15 +74,14 @@ class PopupDataManager {
         const group = this.data.groups.find(g => g.id === groupId);
         if (group) {
             const id = `${groupId}-${Date.now()}`;
-            // 只在用户提供了自定义图标时才保存icon值
             const newSite = {
                 id,
                 ...siteData
             };
-            // 只有当用户明确提供了图标时才保存icon字段
-            if (siteData.icon && (siteData.icon.startsWith('http') || siteData.icon.startsWith('data:'))) {
-                newSite.icon = siteData.icon;
-            }
+            // 图标地址统一规范化（补协议），没填就不带这个字段
+            const icon = normalizeIconUrl(siteData.icon);
+            if (icon) newSite.icon = icon;
+            else delete newSite.icon;
             group.sites.push(newSite);
             await this.saveData();
             return newSite;
@@ -105,14 +104,11 @@ class PopupDataManager {
         if (group) {
             const site = group.sites.find(s => s.id === siteId);
             if (site) {
-                // 只在用户提供了自定义图标时才更新icon值
-                if (siteData.icon) {
-                    if (siteData.icon && (siteData.icon.startsWith('http') || siteData.icon.startsWith('data:'))) {
-                        site.icon = siteData.icon;
-                    } else {
-                        // 如果用户清空了图标输入框，删除icon字段
-                        delete site.icon;
-                    }
+                // 传了 icon 才动这个字段；传空字符串就是「清掉图标」
+                if ('icon' in siteData) {
+                    const icon = normalizeIconUrl(siteData.icon);
+                    if (icon) site.icon = icon;
+                    else delete site.icon;
                 }
                 // 更新其他字段
                 delete siteData.icon; // 避免直接覆盖
@@ -136,11 +132,8 @@ class PopupDataManager {
 class SearchEnginesManager {
     constructor() {
         this.engines = [];
-        this.defaultEngines = [
-            { id: 'bing', name: '必应', url: 'https://www.bing.com/search?q={q}' },
-            { id: 'google', name: 'Google', url: 'https://www.google.com/search?q={q}' },
-            { id: 'baidu', name: '百度', url: 'https://www.baidu.com/s?wd={q}' },
-        ];
+        // 默认列表只有一份，就是文件下方那个 DEFAULT_SEARCH_ENGINES
+        this.defaultEngines = DEFAULT_SEARCH_ENGINES;
     }
 
     // 加载数据
@@ -269,25 +262,9 @@ class PopupWallpaperManager {
         await this.saveUploadedWallpapers(this.uploadedWallpapers);
     }
 
-    // 应用壁纸
+    // 应用壁纸：具体规则只有一份，就是全局的 applyWallpaperValue()
     applyWallpaper(wallpaper) {
-        const body = document.body;
-        
-        if (wallpaper === 'white') {
-            body.style.background = 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)';
-        } else if (wallpaper.startsWith('img/')) {
-            // 处理本地图片
-            body.style.background = `url('${wallpaper}') no-repeat center center fixed`;
-            body.style.backgroundSize = 'cover';
-        } else if (wallpaper.startsWith('data:')) {
-            // 处理base64图片
-            body.style.background = `url('${wallpaper}') no-repeat center center fixed`;
-            body.style.backgroundSize = 'cover';
-        } else if (wallpaper.startsWith('http')) {
-            // 处理URL图片
-            body.style.background = `url('${wallpaper}') no-repeat center center fixed`;
-            body.style.backgroundSize = 'cover';
-        }
+        applyWallpaperValue(wallpaper);
     }
 
     // 处理图片上传
@@ -343,34 +320,100 @@ function siteHostname(url) {
     }
 }
 
-// 图标加载失败时的兜底：显示站点名首字母。
-// 注意 <img> 只藏起来、不删掉 —— 这个图标很可能马上就从另一个图标源拿到了，
-// 到时候直接换个 src 就能换回来；删掉的话本次会话就只能一直看字母。
+// 站点名 / 网址是直接拼进 innerHTML 的：名字里带 < > " 会把整块结构顶坏，
+// 一个手滑的名字就能让后面所有快捷方式错位，所以统一转义。
+const HTML_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+
+function escapeHtml(value) {
+    return String(value == null ? '' : value).replace(/[&<>"']/g, ch => HTML_ESCAPES[ch]);
+}
+
+// 图标垫底 + 淡入：首字母仍然是原来那套「没有就建一个」的兜底，只是不再等 error 事件。
+// 拿不到图的站请求会挂很久，等 error 这段时间格子就是空的 —— 所以渲染完先把字母建好垫着，
+// 图标是盖在它上面的一层，加载完才淡入；图挂了就退回去，露出的还是那个字母。
 //
-// 尺寸不再由这里逐个写内联样式（原来每渲染一次就是 72 × 3 次样式写入），
-// 已交给 style.css 的 .site-icon / .popup-site-icon-img 规则。
+// <img> 始终不删 —— 换个 src 就能换回来。
 //
-// 监听方式也改成「容器级 + 捕获阶段」一个监听器统管：error 事件不冒泡，
-// 但捕获阶段能拿到，所以不必再给每个图标各挂一个（原来每次渲染 72 个）。
+// 监听方式：容器级 + 捕获阶段一个监听器统管 load / error，
+// 不必再给每个图标各挂一个（原来每次渲染 72 个）。
 const iconFallbackBound = new WeakSet();
+const ICON_SELECTOR = 'img.site-icon, img.popup-site-icon-img';
+
+function isIconImg(node) {
+    return !!(node && node.matches && node.matches(ICON_SELECTOR));
+}
+
+// 给格子补上垫底的首字母（已经有了就不动）
+function ensureFallbackText(img) {
+    const parent = img.parentElement;
+    const siteName = img.dataset.siteName;
+    if (!parent || !siteName) return;
+    if (parent.querySelector('.icon-fallback-text')) return;
+    const fallback = document.createElement('span');
+    fallback.className = 'icon-fallback-text';
+    fallback.textContent = siteName.charAt(0).toUpperCase();
+    parent.appendChild(fallback);
+}
+
+// 切图的状态：loaded = 图淡入、字母退场；未加载 = 图退场、字母露出来
+function setIconLoaded(img, loaded) {
+    if (loaded && img.__iconTimer) { clearTimeout(img.__iconTimer); img.__iconTimer = null; }
+    img.classList.toggle('is-loaded', loaded);
+    if (img.parentElement) img.parentElement.classList.toggle('has-icon', loaded);
+}
+
+// 图标请求可能一直挂着不回，浏览器自己判超时是几十秒 —— 这段时间它占着并发槽，
+// 后面本来能秒回的图标也跟着排队。所以自己掐：4 秒还没出图就撤掉地址、中断这次请求。
+// 只是终止这一轮的尝试，不代表「以后不再试」，下次开标签页照样重新试。
+const ICON_WAIT_MS = 4000;
+
+function watchIconTimeout(img) {
+    if (img.__iconTimer) return;
+    const startedSrc = img.getAttribute('src') || '';
+    if (!startedSrc) return;
+    img.__iconTimer = setTimeout(function() {
+        img.__iconTimer = null;
+        if (img.classList.contains('is-loaded')) return;
+        // 这期间已经换成别的图（缓存抓到了）就别插手
+        if ((img.getAttribute('src') || '') !== startedSrc) return;
+        if (startedSrc.indexOf('http') === 0) img.removeAttribute('src');
+    }, ICON_WAIT_MS);
+}
 
 function bindIconFallback(container) {
     if (!container || iconFallbackBound.has(container)) return;
     iconFallbackBound.add(container);
+
+    container.addEventListener('load', function(e) {
+        if (isIconImg(e.target)) setIconLoaded(e.target, true);
+    }, true);
+
     container.addEventListener('error', function(e) {
         const img = e.target;
-        if (!img || !img.classList) return;
-        if (!img.classList.contains('site-icon') && !img.classList.contains('popup-site-icon-img')) return;
-        const parent = img.parentElement;
-        const siteName = img.dataset.siteName;
-        if (!parent || !siteName) { img.remove(); return; }
-        img.style.display = 'none';
-        if (parent.querySelector('.icon-fallback-text')) return; // 已经有字母了，别再加一个
-        const fallback = document.createElement('span');
-        fallback.className = 'icon-fallback-text';
-        fallback.textContent = siteName.charAt(0).toUpperCase();
-        parent.appendChild(fallback);
+        if (!isIconImg(img)) return;
+        if (img.__iconTimer) { clearTimeout(img.__iconTimer); img.__iconTimer = null; }
+        setIconLoaded(img, false);
+        ensureFallbackText(img);
+        // 连域名都没有的图换不回来，留着也没用
+        if (!img.dataset.iconHost) img.remove();
     }, true);
+}
+
+// 给这一批图标垫字母。
+// 必须每次渲染都调：容器只绑一次监听（bindIconFallback 会早退），
+// 但每次重渲染 innerHTML 都会造一批全新的 <img>，它们没垫过字母。
+// 放在 bindIconFallback 里的话第二次渲染就再也垫不上了 —— 只有 error 才会补，
+// 而「请求挂着不回」恰恰等不到 error，格子就一直空着。
+function padIconFallback(container) {
+    if (!container) return;
+    container.querySelectorAll(ICON_SELECTOR).forEach(function(img) {
+        ensureFallbackText(img);
+        // 本地缓存的图可能已经加载完了（load 事件已错过），这里补标一次，
+        // 否则这些图会永远停在透明状态，只剩字母。
+        if (img.complete && img.naturalWidth > 0) { setIconLoaded(img, true); return; }
+        // 只盯图标源直链；本地 blob 不用超时
+        if ((img.getAttribute('src') || '').indexOf('http') === 0) watchIconTimeout(img);
+    });
 }
 
 // 实时更新时间和日期
@@ -379,9 +422,11 @@ function bindIconFallback(container) {
 let timeElement = null;
 let dateElement = null;
 let lastDateString = '';
+const WEEKDAYS = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
 
 function updateDateTime() {
     const now = new Date();
+    const weekdays = WEEKDAYS;
 
     if (!timeElement) timeElement = document.getElementById('time');
     if (!dateElement) dateElement = document.getElementById('date');
@@ -394,7 +439,6 @@ function updateDateTime() {
     }
 
     if (dateElement) {
-        const weekdays = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
         const dateString = `${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日 ${weekdays[now.getDay()]}`;
         if (dateString !== lastDateString) {
             lastDateString = dateString;
@@ -712,10 +756,21 @@ async function initNewSearch() {
     const selectedEngine = document.querySelector('.selected-engine');
     const currentEngine = document.getElementById('current-engine');
     const engineDropdown = document.querySelector('.engine-dropdown');
+    if (!searchForm || !searchInput || !engineDropdown || !searchEngineSelector) return;
 
     // 加载搜索引擎
     const engines = await loadSearchEngines();
-    
+
+    // 当前引擎只记 id。原来是「读回按钮上的文字再反查 id」，
+    // 引擎重名或那个引擎刚被删掉时 find() 会返回 undefined，搜索直接抛错。
+    let currentEngineId = '';
+
+    function selectEngine(engine) {
+        currentEngineId = engine.id;
+        currentEngine.textContent = engine.name;
+        searchEngineSelector.classList.remove('open');
+    }
+
     // 清空并重新生成引擎选项
     engineDropdown.innerHTML = '';
     engines.forEach(engine => {
@@ -725,68 +780,43 @@ async function initNewSearch() {
         option.textContent = engine.name;
         engineDropdown.appendChild(option);
     });
-    
+
+    const initial = engines.find(engine => engine.name === currentEngine.textContent) || engines[0];
+    if (initial) selectEngine(initial);
+
     // 引擎选择器点击事件
     selectedEngine.onclick = function(e) {
         e.stopPropagation();
         searchEngineSelector.classList.toggle('open');
     };
 
-    // 为引擎选项添加点击事件
-    const engineOptions = document.querySelectorAll('.engine-option');
-    engineOptions.forEach(option => {
-        option.onclick = function(e) {
-            e.stopPropagation();
-            const engineId = this.dataset.engine;
-            const engineName = this.textContent;
-            currentEngine.textContent = engineName;
-            searchEngineSelector.classList.remove('open');
-        };
-    });
+    // 选项点击走一个委托：引擎增删后重新渲染选项，不必再逐个绑（原来每次重建 N 个监听器）
+    engineDropdown.onclick = function(e) {
+        const option = e.target.closest ? e.target.closest('.engine-option') : null;
+        if (!option) return;
+        e.stopPropagation();
+        selectEngine({ id: option.dataset.engine, name: option.textContent });
+    };
 
-    // 搜索表单提交事件
-    searchForm.onsubmit = async function(e) {
-        e.preventDefault();
+    async function submitSearch() {
         const query = searchInput.value.trim();
-        if (query) {
-            const currentEngineName = currentEngine.textContent;
-            const engineId = Array.from(engineOptions).find(option => 
-                option.textContent === currentEngineName
-            ).dataset.engine;
-            const searchUrl = await getSearchUrl(query, engineId);
-            window.open(searchUrl, '_blank');
-            searchInput.value = '';
-        }
+        if (!query) return;
+        const searchUrl = await getSearchUrl(query, currentEngineId);
+        window.open(searchUrl, '_blank');
+        searchInput.value = '';
+    }
+
+    // 回车交给表单提交处理。原来另外挂了 keypress，一次回车两个处理器都跑，
+    // 靠「先清空输入框」让后一个跳过，属于撞上了才不出错。
+    searchForm.onsubmit = function(e) {
+        e.preventDefault();
+        submitSearch();
     };
 
-    // 回车键搜索
-    searchInput.onkeypress = async function(e) {
-        if (e.key === 'Enter') {
-            const query = this.value.trim();
-            if (query) {
-                const currentEngineName = currentEngine.textContent;
-                const engineId = Array.from(engineOptions).find(option => 
-                    option.textContent === currentEngineName
-                ).dataset.engine;
-                const searchUrl = await getSearchUrl(query, engineId);
-                window.open(searchUrl, '_blank');
-                this.value = '';
-            }
-        }
-    };
-
-    // 点击外部关闭下拉菜单
+    // 点击外部关闭下拉菜单（管理菜单的关闭在 initManageDropdown 里，这里不再重复写一份）
     document.onclick = function(e) {
-        // 关闭搜索引擎下拉框
         if (!searchEngineSelector.contains(e.target)) {
             searchEngineSelector.classList.remove('open');
-        }
-        
-        // 关闭管理下拉菜单
-        const manageDropdown = document.querySelector('.manage-dropdown-menu');
-        const manageButton = document.querySelector('.manage-button');
-        if (manageDropdown && !manageDropdown.contains(e.target) && manageButton && !manageButton.contains(e.target)) {
-            manageDropdown.classList.remove('show');
         }
     };
 }
@@ -1148,11 +1178,29 @@ function getDefaultShortcutsData() {
 // 注意抽屉里那张图**未必是当前图标源抓的**。这里先用它把格子填上（有图总比字母强），
 // 随后 warmIconCache 会拿当前源去抓一次：抓到了就换掉这张图并覆盖缓存记录，
 // 抓不到就保持原样。也就是「当前源优先，旧图兜底」。
+// 规范化用户手填的图标地址：允许「www.xx.com/a.png」这种不带协议的写法，
+// 统一补成 https://；空值返回空串（表示没填 / 要清掉）。
+function normalizeIconUrl(value) {
+    const text = String(value || '').trim();
+    if (!text) return '';
+    if (/^(https?:\/\/|data:)/i.test(text)) return text;
+    if (text.indexOf('//') === 0) return 'https:' + text;
+    return 'https://' + text;
+}
+
+// 站点自己填了图标（http / data）就用它，优先级高于缓存和图标源
+function hasCustomIcon(site) {
+    return !!(site && site.icon && (site.icon.startsWith('http') || site.icon.startsWith('data:')));
+}
+
 function resolveIconSrc(site, host, iconApi) {
-    if (site.icon && (site.icon.startsWith('http') || site.icon.startsWith('data:'))) {
+    if (hasCustomIcon(site)) {
         return site.icon;
     }
-    const cached = typeof iconCache !== 'undefined' && iconCache ? iconCache.get(host) : null;
+    const cache = (typeof iconCache !== 'undefined' && iconCache) ? iconCache : null;
+    const cached = cache ? cache.get(host) : null;
+    // 有本地图就用本地的；没有就每次都填图标源地址、每次重新试一遍。
+    // 试不出来也没关系 —— 格子里的字母早就垫着了，图什么时候回来什么时候盖上去。
     return cached || iconApi.replace('{domain}', host);
 }
 
@@ -1213,11 +1261,11 @@ function applyCachedIcon(host, blobUrl, container) {
     }
     nodes.forEach(node => {
         if (node.tagName !== 'IMG') return;
-        node.style.display = '';
+        // 站点自己填了图标的，不能被同域名抓回来的图顶掉
+        if (node.dataset.iconCustom) return;
+        // 换 src 前先让旧的那层退场，新图 load 完再淡入；中间这段继续由字母垫着
+        setIconLoaded(node, false);
         node.src = blobUrl;
-        const parent = node.parentElement;
-        const fallback = parent && parent.querySelector('.icon-fallback-text');
-        if (fallback) fallback.remove();
     });
 }
 
@@ -1249,19 +1297,22 @@ async function renderShortcuts() {
         const iconHosts = [];
 
         shortcutsContainer.innerHTML = groups.map(group => `
-            <div class="shortcut-group" draggable="true" data-group-id="${group.id}">
-                <h3 class="group-title">${group.name}</h3>
+            <div class="shortcut-group" draggable="true" data-group-id="${escapeHtml(group.id)}">
+                <h3 class="group-title">${escapeHtml(group.name)}</h3>
                 <div class="shortcut-items">
                     ${(group.sites || []).map(site => {
                         const host = siteHostname(site.url);
-                        iconHosts.push(host);
+                        // 自己填了图标的站不交给图标源，否则抓回来的图会把它覆盖掉
+                        if (!hasCustomIcon(site)) iconHosts.push(host);
                         const src = resolveIconSrc(site, host, iconApi);
+                        // 标记自定义图标：后台抓到同域名的图时，applyCachedIcon 要跳过它
+                        const customAttr = hasCustomIcon(site) ? ' data-icon-custom="1"' : '';
                         return `
-                        <a href="${site.url}" class="shortcut-item" draggable="true" target="_blank" data-site-id="${site.id}">
+                        <a href="${escapeHtml(site.url)}" class="shortcut-item" draggable="true" target="_blank" data-site-id="${escapeHtml(site.id)}">
                             <div class="shortcut-icon">
-                                <img src="${src}" alt="${site.name} icon" class="site-icon" data-site-name="${site.name}" data-icon-host="${host}">
+                                <img src="${escapeHtml(src)}" alt="${escapeHtml(site.name)} icon" class="site-icon" data-site-name="${escapeHtml(site.name)}" data-icon-host="${escapeHtml(host)}"${customAttr}>
                             </div>
-                            <span class="shortcut-name">${site.name}</span>
+                            <span class="shortcut-name">${escapeHtml(site.name)}</span>
                         </a>`;
                     }).join('')}
                 </div>
@@ -1271,6 +1322,8 @@ async function renderShortcuts() {
         // 只在快捷方式区域内找图标；拖拽走容器级事件委托，这里只需确认已绑定
         // 图标加载失败兜底：容器级捕获监听，一个就够
         bindIconFallback(shortcutsContainer);
+        // 先垫字母：图没回来（或永远回不来）时格子里不是空的
+        padIconFallback(shortcutsContainer);
         bindShortcutsDragOnce();
         // 本地抽屉里还没有的图标，趁这会儿悄悄补上
         warmIconCache(iconHosts, shortcutsContainer);
@@ -1279,54 +1332,74 @@ async function renderShortcuts() {
     }
 }
 
+// 壁纸落地的唯一实现：首页启动和壁纸面板都调它。
+// 原来类里和这里各写了一份，规则还不完全一样（面板那份不会在图片失效时退回默认背景）。
+const DEFAULT_BACKGROUND = 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)';
+
+function applyWallpaperValue(wallpaper) {
+    const body = document.body;
+    if (!wallpaper || wallpaper === 'white') {
+        body.style.background = DEFAULT_BACKGROUND;
+        body.style.backgroundColor = '#ffffff';
+        body.style.backgroundSize = '';
+        return;
+    }
+
+    body.style.background = `url('${wallpaper}') no-repeat center center fixed`;
+    body.style.backgroundSize = 'cover';
+    body.style.backgroundColor = '#ffffff';
+
+    // 图挂了（链接失效 / 上传的数据坏了）就退回默认背景，别留一块空白
+    const probe = new Image();
+    probe.onerror = function() {
+        body.style.background = DEFAULT_BACKGROUND;
+        body.style.backgroundColor = '#ffffff';
+        body.style.backgroundSize = '';
+    };
+    probe.src = wallpaper;
+}
+
 // 应用壁纸
 async function applyWallpaper() {
     try {
         // 壁纸已独立成 startpage-wallpaper 键：这里既不解析分组数据，
         // 也不再需要任何回写 —— 开新标签页的壁纸处理现在是「纯读 + 0 次写盘」
-        const wallpaper = readWallpaperStore().current;
-        
-        // 应用壁纸
-        if (wallpaper === 'white') {
-            document.body.style.background = 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)';
-            document.body.style.backgroundColor = '#ffffff';
-        } else if (wallpaper.startsWith('img/') || wallpaper.startsWith('http') || wallpaper.startsWith('data:')) {
-            document.body.style.background = `url('${wallpaper}') no-repeat center center fixed`;
-            document.body.style.backgroundSize = 'cover';
-            document.body.style.backgroundColor = '#ffffff';
-            
-            // 检查图片是否加载成功
-            const img = new Image();
-            img.onload = function() {
-                // 图片加载成功，保持背景
-            };
-            img.onerror = function() {
-                // 图片加载失败，恢复默认背景
-                document.body.style.background = 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)';
-                document.body.style.backgroundColor = '#ffffff';
-            };
-            img.src = wallpaper;
-        }
+        applyWallpaperValue(readWallpaperStore().current);
     } catch (error) {
         console.error('Apply wallpaper error:', error);
     }
+}
+
+// 首屏的图标全都要去图标源拿，先把 DNS / TLS 握手提前做掉，别等渲染完才连
+function preconnectIconApi() {
+    let origin;
+    try {
+        origin = new URL(getIconApiUrl().replace('{domain}', 'example.com')).origin;
+    } catch (error) {
+        return; // 图标源填得不是合法地址，跳过
+    }
+    const link = document.createElement('link');
+    link.rel = 'preconnect';
+    link.href = origin;
+    link.crossOrigin = '';
+    document.head.appendChild(link);
 }
 
 // 页面加载完成后初始化
 window.addEventListener('DOMContentLoaded', async function() {
     // 先把壁纸数据从 startpage-data 里迁到独立键（一次性、幂等、失败安全）
     migrateWallpaperStorage();
-    // 把本地图标抽屉读进内存：渲染时才能同步命中，不必把渲染改成异步
-    await loadIconCache();
-    await initNewSearch();
+
+    // 壁纸最先上：它是整页背景，没必要排在图标缓存后面
+    applyWallpaper();
+    preconnectIconApi();
+
+    // 图标缓存必须等（渲染时要同步查表），但它和搜索框初始化互不依赖，并行跑
+    await Promise.all([loadIconCache(), initNewSearch()]);
+
     await renderShortcuts();
-    await applyWallpaper();
-    // 处理右键菜单 / 弹窗攒下的收藏
+    // 处理右键菜单 / 弹窗攒下的收藏（不影响首屏，放最后）
     await qdbInitBridge();
-    
-    // 页面淡入动画已移到 style.css 的 page-fade-in。
-    // 原来这三行是在渲染「完成之后」才执行的，效果是内容先露一下、再被隐掉、然后淡回来，
-    // 既是可见的闪动，又白等一个 100ms 定时器。
 });
 
 // 添加键盘快捷键
@@ -1346,32 +1419,6 @@ window.addEventListener('keydown', function(e) {
         }
     }
 });
-
-// 添加搜索框自动完成功能
-function initAutocomplete() {
-    const searchInput = document.getElementById('new-search-input');
-    if (!searchInput) return;
-    
-    const suggestions = [
-        'Google',
-        '百度',
-        'GitHub',
-        'YouTube',
-        'Notion',
-        'Figma',
-        'CodePen',
-        'Stack Overflow'
-    ];
-    
-    searchInput.addEventListener('input', function() {
-        const query = this.value.toLowerCase();
-        // 这里可以添加更复杂的自动完成逻辑
-        // 例如显示建议列表等
-    });
-}
-
-// 初始化自动完成
-initAutocomplete();
 
 // 初始化管理下拉菜单
 function initManageDropdown() {
@@ -1508,7 +1555,7 @@ function showPopup(type) {
                             </div>
                             <div class="form-group">
                                 <label for="popup-site-icon">网站图标 (可选)</label>
-                                <input type="url" id="popup-site-icon" class="form-control" placeholder="请输入图标URL">
+                                <input type="text" id="popup-site-icon" class="form-control" placeholder="请输入图标URL">
                             </div>
                             <div class="modal-buttons">
                                 <button type="button" id="popup-cancel-add-site" class="btn btn-secondary">取消</button>
@@ -1535,7 +1582,7 @@ function showPopup(type) {
                             </div>
                             <div class="form-group">
                                 <label for="popup-edit-site-icon">网站图标 (可选)</label>
-                                <input type="url" id="popup-edit-site-icon" class="form-control" placeholder="请输入图标URL">
+                                <input type="text" id="popup-edit-site-icon" class="form-control" placeholder="请输入图标URL">
                             </div>
                             <div class="modal-buttons">
                                 <button type="button" id="popup-cancel-edit-site" class="btn btn-secondary">取消</button>
@@ -1550,7 +1597,7 @@ function showPopup(type) {
                     <div class="modal-content">
                         <h3>编辑分组</h3>
                         <form id="popup-edit-group-form">
-                            <input type="hidden" id="popup-edit-group-id">
+                            <input type="hidden" id="popup-edit-group-form-id">
                             <div class="form-group">
                                 <label for="popup-edit-group-name">分组名称</label>
                                 <input type="text" id="popup-edit-group-name" class="form-control" required>
@@ -1752,28 +1799,29 @@ function showPopup(type) {
         initPopupSettingsManagement(popupContent);
     }
     
-    // 点击外部关闭
-    popupContainer.addEventListener('click', function(e) {
-        if (e.target === popupContainer) {
-            closePopup();
-        }
-    });
+    // 点击外部关闭（容器是常驻的，只绑一次；原来每打开一次面板就多加一个监听器）
+    if (!popupContainer.dataset.outsideBound) {
+        popupContainer.dataset.outsideBound = '1';
+        popupContainer.addEventListener('click', function(e) {
+            if (e.target === popupContainer) closePopup();
+        });
+    }
 }
 
 // 关闭弹出界面
 function closePopup() {
     const popupContainer = document.getElementById('popup-container');
-    if (popupContainer) {
-        const popupContent = popupContainer.querySelector('.popup-content');
-        const popupType = popupContent ? popupContent.dataset.type : null;
-        
-        popupContainer.classList.remove('show');
-        
-        // 等待动画完成后清空内容
-        setTimeout(() => {
-            popupContainer.innerHTML = '';
-        }, 300);
-    }
+    if (!popupContainer) return;
+    const popupContent = popupContainer.querySelector('.popup-content');
+
+    popupContainer.classList.remove('show');
+
+    // 等动画结束再清内容。只清「关掉的那一块」：
+    // 300ms 内又打开新面板的话，旧元素已经不在文档里了，不能把新面板一起抹掉。
+    if (!popupContent) return;
+    setTimeout(() => {
+        if (popupContent.isConnected) popupContent.remove();
+    }, 300);
 }
 
 
@@ -1810,32 +1858,34 @@ async function initPopupGroupsManagement(popupContent) {
         groupsContainer.innerHTML = groups.map(group => `
             <div class="popup-group-card">
                 <div class="popup-group-header">
-                    <h5>${group.name}</h5>
+                    <h5>${escapeHtml(group.name)}</h5>
                     <div class="popup-group-actions">
-                        <button class="btn btn-secondary btn-sm popup-add-site-btn" data-group-id="${group.id}">添加</button>
-                        <button class="btn btn-secondary btn-sm popup-edit-group-btn" data-group-id="${group.id}">编辑</button>
-                        <button class="btn btn-danger btn-sm popup-delete-group-btn" data-group-id="${group.id}">删除</button>
+                        <button class="btn btn-secondary btn-sm popup-add-site-btn" data-group-id="${escapeHtml(group.id)}">添加</button>
+                        <button class="btn btn-secondary btn-sm popup-edit-group-btn" data-group-id="${escapeHtml(group.id)}">编辑</button>
+                        <button class="btn btn-danger btn-sm popup-delete-group-btn" data-group-id="${escapeHtml(group.id)}">删除</button>
                     </div>
                 </div>
                 <div class="popup-sites-list">
                     ${group.sites && group.sites.length > 0 ? group.sites.map(site => {
                         const host = siteHostname(site.url);
-                        iconHosts.push(host);
+                        // 自己填了图标的站不交给图标源，否则抓回来的图会把它覆盖掉
+                        if (!hasCustomIcon(site)) iconHosts.push(host);
                         const src = resolveIconSrc(site, host, iconApi);
+                        const customAttr = hasCustomIcon(site) ? ' data-icon-custom="1"' : '';
                         return `
                         <div class="popup-site-item">
                             <div class="popup-site-info">
                                 <div class="popup-site-icon">
-                                    <img src="${src}" alt="${site.name} icon" class="popup-site-icon-img" data-site-name="${site.name}" data-icon-host="${host}">
+                                    <img src="${escapeHtml(src)}" alt="${escapeHtml(site.name)} icon" class="popup-site-icon-img" data-site-name="${escapeHtml(site.name)}" data-icon-host="${escapeHtml(host)}"${customAttr}>
                                 </div>
                                 <div class="popup-site-details">
-                                    <div class="popup-site-name">${site.name}</div>
-                                    <div class="popup-site-url">${site.url}</div>
+                                    <div class="popup-site-name">${escapeHtml(site.name)}</div>
+                                    <div class="popup-site-url">${escapeHtml(site.url)}</div>
                                 </div>
                             </div>
                             <div class="popup-site-actions">
-                                <button class="btn btn-secondary btn-sm popup-edit-site-btn" data-group-id="${group.id}" data-site-id="${site.id}">编辑</button>
-                                <button class="btn btn-danger btn-sm popup-delete-site-btn" data-group-id="${group.id}" data-site-id="${site.id}">删除</button>
+                                <button class="btn btn-secondary btn-sm popup-edit-site-btn" data-group-id="${escapeHtml(group.id)}" data-site-id="${escapeHtml(site.id)}">编辑</button>
+                                <button class="btn btn-danger btn-sm popup-delete-site-btn" data-group-id="${escapeHtml(group.id)}" data-site-id="${escapeHtml(site.id)}">删除</button>
                             </div>
                         </div>
                     `;}).join('') : `
@@ -1852,6 +1902,8 @@ async function initPopupGroupsManagement(popupContent) {
 
         // 图标加载失败兜底：容器级捕获监听，一个就够
         bindIconFallback(groupsContainer);
+        // 先垫字母，理由同首页
+        padIconFallback(groupsContainer);
         // 本地抽屉里还没有的图标，趁这会儿悄悄补上
         warmIconCache(iconHosts, groupsContainer);
     }
@@ -1926,8 +1978,9 @@ async function initPopupGroupsManagement(popupContent) {
                     // 找到对应的分组数据
                     const group = dataManager.getGroups().find(g => g.id === groupId);
                     if (group) {
-                        // 填充表单
-                        popupContent.querySelector('#popup-edit-group-id').value = groupId;
+                        // 填充表单（用本表单自己的 hidden 字段：两个表单原来共用一个 id，
+                        // querySelector 只会命中排在前面的那个，编辑分组因此永远拿到空 id）
+                        popupContent.querySelector('#popup-edit-group-form-id').value = groupId;
                         popupContent.querySelector('#popup-edit-group-name').value = group.name;
                         
                         showModal('popup-edit-group-modal');
@@ -1940,20 +1993,17 @@ async function initPopupGroupsManagement(popupContent) {
     // 显示模态框
     function showModal(modalId) {
         const modal = popupContent.querySelector(`#${modalId}`);
-        if (modal) {
-            modal.style.display = 'flex';
-            // 强制重绘以触发动画
-            modal.offsetHeight;
-            modal.classList.add('modal-show');
-            // 添加点击外部关闭功能
-            setTimeout(() => {
-                modal.addEventListener('click', (e) => {
-                    if (e.target === modal) {
-                        hideModal(modalId);
-                    }
-                });
-            }, 100);
+        if (!modal) return;
+        // 点击外部关闭只绑一次：原来每次打开都在 100ms 后再加一个监听器，越点越多
+        if (!modal.dataset.outsideBound) {
+            modal.dataset.outsideBound = '1';
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) hideModal(modalId);
+            });
         }
+        modal.style.display = 'flex';
+        modal.offsetHeight; // 强制重绘，动画才会从初始态开始
+        modal.classList.add('modal-show');
     }
 
     // 隐藏模态框
@@ -2022,14 +2072,12 @@ async function initPopupGroupsManagement(popupContent) {
             const siteIcon = popupContent.querySelector('#popup-site-icon').value.trim();
 
             if (siteName && siteUrl) {
+                // 图标原样交给数据层去规范化，避免「填了但不符合 http 开头就静默丢掉」
                 const siteData = {
                     name: siteName,
-                    url: siteUrl
+                    url: siteUrl,
+                    icon: siteIcon
                 };
-                // 只有当用户明确提供了图标时才添加icon字段
-                if (siteIcon && (siteIcon.startsWith('http') || siteIcon.startsWith('data:'))) {
-                    siteData.icon = siteIcon;
-                }
                 await dataManager.addSite(groupId, siteData);
                 renderGroups();
                 hideModal('popup-add-site-modal');
@@ -2060,14 +2108,12 @@ async function initPopupGroupsManagement(popupContent) {
             const siteIcon = popupContent.querySelector('#popup-edit-site-icon').value.trim();
 
             if (siteName && siteUrl) {
+                // 始终带上 icon：清空输入框 = 删掉这个站点的自定义图标
                 const siteData = {
                     name: siteName,
-                    url: siteUrl
+                    url: siteUrl,
+                    icon: siteIcon
                 };
-                // 只有当用户明确提供了图标时才添加icon字段
-                if (siteIcon && (siteIcon.startsWith('http') || siteIcon.startsWith('data:'))) {
-                    siteData.icon = siteIcon;
-                }
                 await dataManager.updateSite(groupId, siteId, siteData);
                 renderGroups();
                 hideModal('popup-edit-site-modal');
@@ -2091,7 +2137,7 @@ async function initPopupGroupsManagement(popupContent) {
     if (editGroupForm) {
         editGroupForm.addEventListener('submit', async (e) => {
             e.preventDefault();
-            const groupId = popupContent.querySelector('#popup-edit-group-id').value;
+            const groupId = popupContent.querySelector('#popup-edit-group-form-id').value;
             const groupName = popupContent.querySelector('#popup-edit-group-name').value.trim();
 
             if (groupName) {
@@ -2126,12 +2172,12 @@ async function initPopupSearchEnginesManagement(popupContent) {
         container.innerHTML = engines.map(engine => `
             <div class="engine-item">
                 <div class="engine-info">
-                    <div class="engine-name">${engine.name}</div>
-                    <div class="engine-url">${engine.url}</div>
+                    <div class="engine-name">${escapeHtml(engine.name)}</div>
+                    <div class="engine-url">${escapeHtml(engine.url)}</div>
                 </div>
                 <div class="engine-actions">
-                    <button class="btn btn-secondary btn-sm edit-engine-btn" data-id="${engine.id}">编辑</button>
-                    <button class="btn btn-danger btn-sm delete-engine-btn" data-id="${engine.id}">删除</button>
+                    <button class="btn btn-secondary btn-sm edit-engine-btn" data-id="${escapeHtml(engine.id)}">编辑</button>
+                    <button class="btn btn-danger btn-sm delete-engine-btn" data-id="${escapeHtml(engine.id)}">删除</button>
                 </div>
             </div>
         `).join('');
@@ -2178,18 +2224,16 @@ async function initPopupSearchEnginesManagement(popupContent) {
     // 显示模态框
     function showModal(modalId) {
         const modal = popupContent.querySelector(`#${modalId}`);
-        if (modal) {
-            modal.style.display = 'flex';
-            modal.offsetHeight;
-            modal.classList.add('modal-show');
-            setTimeout(() => {
-                modal.addEventListener('click', (e) => {
-                    if (e.target === modal) {
-                        hideModal(modalId);
-                    }
-                });
-            }, 100);
+        if (!modal) return;
+        if (!modal.dataset.outsideBound) {
+            modal.dataset.outsideBound = '1';
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) hideModal(modalId);
+            });
         }
+        modal.style.display = 'flex';
+        modal.offsetHeight;
+        modal.classList.add('modal-show');
     }
 
     // 隐藏模态框
@@ -2274,427 +2318,178 @@ async function initPopupSearchEnginesManagement(popupContent) {
 
 // 初始化弹出界面中的壁纸设置功能
 async function initPopupWallpaperManagement(popupContent) {
-    // 初始化壁纸管理器
     const wallpaperManager = new PopupWallpaperManager();
     await wallpaperManager.loadAll();
 
+    const previewsBox = popupContent.querySelector('.wallpaper-previews');
+    const urlList = popupContent.querySelector('#url-wallpapers-list');
 
-
-    // 将已上传的壁纸添加到预览列表
-    function addUploadedWallpapersToPreviews() {
-        const wallpaperPreviews = popupContent.querySelector('.wallpaper-previews');
-        if (!wallpaperPreviews) return;
-
-        wallpaperManager.uploadedWallpapers.forEach(wallpaper => {
-            // 检查是否已存在相同的壁纸
-            const existingPreview = Array.from(wallpaperPreviews.children).find(p => p.dataset.wallpaper === wallpaper);
-            if (!existingPreview) {
-                const newPreview = document.createElement('div');
-                newPreview.className = 'wallpaper-preview';
-                newPreview.dataset.wallpaper = wallpaper;
-                newPreview.innerHTML = `
-                    <div class="wallpaper-thumbnail" style="background-image: url('${wallpaper}'); background-size: cover; background-position: center;"></div>
-                    <button class="wallpaper-delete-btn" data-wallpaper="${wallpaper}">&times;</button>
-                `;
-                
-                // 绑定点击事件
-                newPreview.addEventListener('click', async function() {
-                    const wallpaper = this.dataset.wallpaper;
-                    if (await wallpaperManager.saveWallpaper(wallpaper)) {
-                        wallpaperManager.applyWallpaper(wallpaper);
-                        
-                        // 更新选中状态
-                        const previews = popupContent.querySelectorAll('.wallpaper-preview');
-                        previews.forEach(p => p.classList.remove('selected'));
-                        this.classList.add('selected');
-                    }
-                });
-                
-                // 绑定删除按钮事件
-                const deleteBtn = newPreview.querySelector('.wallpaper-delete-btn');
-                if (deleteBtn) {
-                    deleteBtn.addEventListener('click', async function(e) {
-                        e.stopPropagation();
-                        const wallpaper = this.dataset.wallpaper;
-                        
-                        showConfirmDialog('删除壁纸', '确定要删除这个壁纸吗？', async () => {
-                            await wallpaperManager.removeUploadedWallpaper(wallpaper);
-                            
-                            // 如果删除的是当前壁纸，重置为默认壁纸
-                            // 如果删除的正是当前壁纸，重置为默认
-                            if (wallpaperManager.currentWallpaper === wallpaper) {
-                                await wallpaperManager.saveWallpaper('white');
-                                wallpaperManager.applyWallpaper('white');
-
-                                const previews = popupContent.querySelectorAll('.wallpaper-preview');
-                                previews.forEach(p => p.classList.remove('selected'));
-                                const whitePreview = Array.from(previews).find(p => p.dataset.wallpaper === 'white');
-                                if (whitePreview) {
-                                    whitePreview.classList.add('selected');
-                                }
-                            }
-                            
-                            // 移除预览项
-                            newPreview.remove();
-                            
-                            showMessage('壁纸已删除');
-                        });
-                    });
-                }
-                
-                // 添加到预览列表
-                wallpaperPreviews.appendChild(newPreview);
-            }
+    function markSelected(wallpaper) {
+        popupContent.querySelectorAll('.wallpaper-preview').forEach(preview => {
+            preview.classList.toggle('selected', preview.dataset.wallpaper === wallpaper);
         });
     }
 
-    // 初始化时添加已上传的壁纸
-    addUploadedWallpapersToPreviews();
+    async function useWallpaper(wallpaper) {
+        if (!await wallpaperManager.saveWallpaper(wallpaper)) return;
+        wallpaperManager.applyWallpaper(wallpaper);
+        markSelected(wallpaper);
+        showMessage('壁纸已设置');
+    }
 
-    // 绑定默认壁纸选择
-    const wallpaperPreviews = popupContent.querySelectorAll('.wallpaper-preview');
-    wallpaperPreviews.forEach(preview => {
-        preview.addEventListener('click', async function() {
-            const wallpaper = this.dataset.wallpaper;
-            if (await wallpaperManager.saveWallpaper(wallpaper)) {
-                wallpaperManager.applyWallpaper(wallpaper);
-                showMessage('壁纸已设置');
-                
-                // 更新选中状态
-                wallpaperPreviews.forEach(p => p.classList.remove('selected'));
-                this.classList.add('selected');
+    function previewExists(wallpaper) {
+        if (!previewsBox) return true;
+        return Array.from(previewsBox.children).some(preview => preview.dataset.wallpaper === wallpaper);
+    }
+
+    // 删除壁纸：确认后从列表里摘掉；删的如果正是当前壁纸就退回默认，
+    // 否则背景会继续挂着一张已经不存在的图。
+    function confirmRemove(wallpaper, previewElement) {
+        showConfirmDialog('删除壁纸', '确定要删除这个壁纸吗？', async () => {
+            await wallpaperManager.removeUploadedWallpaper(wallpaper);
+            if (wallpaperManager.currentWallpaper === wallpaper) {
+                await wallpaperManager.saveWallpaper('white');
+                wallpaperManager.applyWallpaper('white');
+                markSelected('white');
             }
+            if (previewElement) previewElement.remove();
+            renderUrlList();
+            showMessage('壁纸已删除');
         });
-    });
+    }
 
-    // 绑定删除按钮
-    const deleteButtons = popupContent.querySelectorAll('.wallpaper-delete-btn');
-    deleteButtons.forEach(btn => {
-        btn.addEventListener('click', async function(e) {
+    // 已上传 / URL 壁纸的预览卡：点选应用，右上角删除。
+    // 缩略图用 style 赋值，不拼进 innerHTML —— base64 动辄几 MB，拼进去等于白造一个大字符串。
+    function createPreview(wallpaper) {
+        const preview = document.createElement('div');
+        preview.className = 'wallpaper-preview';
+        preview.dataset.wallpaper = wallpaper;
+
+        const thumb = document.createElement('div');
+        thumb.className = 'wallpaper-thumbnail';
+        thumb.style.backgroundImage = `url('${wallpaper}')`;
+        thumb.style.backgroundSize = 'cover';
+        thumb.style.backgroundPosition = 'center';
+
+        const removeButton = document.createElement('button');
+        removeButton.className = 'wallpaper-delete-btn';
+        removeButton.innerHTML = '&times;';
+
+        preview.appendChild(thumb);
+        preview.appendChild(removeButton);
+
+        preview.addEventListener('click', function() {
+            useWallpaper(wallpaper);
+        });
+        removeButton.addEventListener('click', function(e) {
             e.stopPropagation();
-            const wallpaper = this.dataset.wallpaper;
-            
-            showConfirmDialog('删除壁纸', '确定要删除这个壁纸吗？', async () => {
-                await wallpaperManager.removeUploadedWallpaper(wallpaper);
-                
-                // 如果删除的是当前壁纸，重置为默认壁纸
-                if (wallpaperManager.currentWallpaper === wallpaper) {
-                    await wallpaperManager.saveWallpaper('white');
-                    wallpaperManager.applyWallpaper('white');
-                    
-                    // 更新预览列表的选中状态
-                    const previews = popupContent.querySelectorAll('.wallpaper-preview');
-                    previews.forEach(p => p.classList.remove('selected'));
-                    const whitePreview = Array.from(previews).find(p => p.dataset.wallpaper === 'white');
-                    if (whitePreview) {
-                        whitePreview.classList.add('selected');
-                    }
-                }
-                
-                // 移除预览项
-                const previewItem = this.closest('.wallpaper-preview');
-                if (previewItem) {
-                    previewItem.remove();
-                }
-                
-                // 更新URL壁纸列表
-                renderUrlWallpapersList();
-                
-                showMessage('壁纸已删除');
-            });
+            confirmRemove(wallpaper, preview);
+        });
+        return preview;
+    }
+
+    // 内置壁纸（默认渐变 + img/1~3）：只有「点选应用」，没有删除按钮。
+    // 只在这一处绑，后面新加的预览卡自带处理器 —— 原来两处都绑，上传的壁纸点了会执行两遍。
+    popupContent.querySelectorAll('.wallpaper-preview').forEach(preview => {
+        const wallpaper = preview.dataset.wallpaper;
+        if (!wallpaper) return;
+        preview.addEventListener('click', function() {
+            useWallpaper(wallpaper);
         });
     });
 
-    // 绑定上传壁纸
+    // 已保存的壁纸（base64 与 URL）补上预览卡
+    function addUploadedPreviews() {
+        if (!previewsBox) return;
+        wallpaperManager.uploadedWallpapers.forEach(wallpaper => {
+            if (previewExists(wallpaper)) return;
+            previewsBox.appendChild(createPreview(wallpaper));
+        });
+    }
+
+    function renderUrlList() {
+        if (!urlList) return;
+        const urls = wallpaperManager.uploadedWallpapers.filter(item => item.startsWith('http'));
+        if (!urls.length) {
+            urlList.innerHTML = '<p style="font-size: 0.8rem; color: rgba(0, 0, 0, 0.6); text-align: center; padding: 12px;">暂无URL壁纸</p>';
+            return;
+        }
+        urlList.innerHTML = urls.map(url => `
+            <div class="url-wallpaper-item" data-url="${escapeHtml(url)}">
+                <div class="url-wallpaper-thumbnail" style="background-image: url('${escapeHtml(url)}');"></div>
+                <div class="url-wallpaper-info">
+                    <div class="url-wallpaper-url">${escapeHtml(url)}</div>
+                </div>
+                <div class="url-wallpaper-actions">
+                    <button class="url-wallpaper-btn apply" data-action="apply">应用</button>
+                    <button class="url-wallpaper-btn delete" data-action="delete">删除</button>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    // URL 列表的按钮走一个委托：每次重渲染不必再重新绑一遍（原来每项两个监听器）
+    if (urlList) {
+        urlList.addEventListener('click', function(e) {
+            const button = e.target.closest ? e.target.closest('.url-wallpaper-btn') : null;
+            if (!button) return;
+            const item = button.closest('.url-wallpaper-item');
+            const url = item && item.dataset.url;
+            if (!url) return;
+            if (button.dataset.action === 'apply') {
+                useWallpaper(url);
+                return;
+            }
+            const previewElement = previewsBox
+                ? Array.from(previewsBox.children).find(preview => preview.dataset.wallpaper === url)
+                : null;
+            confirmRemove(url, previewElement);
+        });
+    }
+
+    // 本地上传
     const fileInput = popupContent.querySelector('#wallpaper-upload');
     if (fileInput) {
-        fileInput.addEventListener('change', async function(e) {
-            const file = e.target.files[0];
-            if (file) {
-                const base64Image = await wallpaperManager.handleImageUpload(file);
-                if (base64Image) {
-                    // 保存到已上传壁纸列表
-                    await wallpaperManager.addUploadedWallpaper(base64Image);
-                    
-                    if (await wallpaperManager.saveWallpaper(base64Image)) {
-                        wallpaperManager.applyWallpaper(base64Image);
-                        
-                        // 将新壁纸添加到已有壁纸列表
-                        const wallpaperPreviews = popupContent.querySelector('.wallpaper-previews');
-                        if (wallpaperPreviews) {
-                            // 检查是否已存在相同的壁纸
-                            const existingPreview = Array.from(wallpaperPreviews.children).find(p => p.dataset.wallpaper === base64Image);
-                            if (!existingPreview) {
-                                const newPreview = document.createElement('div');
-                                newPreview.className = 'wallpaper-preview selected';
-                                newPreview.dataset.wallpaper = base64Image;
-                                newPreview.innerHTML = `
-                                    <div class="wallpaper-thumbnail" style="background-image: url('${base64Image}'); background-size: cover; background-position: center;"></div>
-                                    <button class="wallpaper-delete-btn" data-wallpaper="${base64Image}">&times;</button>
-                                `;
-                                
-                                // 绑定点击事件
-                                newPreview.addEventListener('click', async function() {
-                                    const wallpaper = this.dataset.wallpaper;
-                                    if (await wallpaperManager.saveWallpaper(wallpaper)) {
-                                        wallpaperManager.applyWallpaper(wallpaper);
-                                        
-                                        // 更新选中状态
-                                        const previews = popupContent.querySelectorAll('.wallpaper-preview');
-                                        previews.forEach(p => p.classList.remove('selected'));
-                                        this.classList.add('selected');
-                                    }
-                                });
-                                
-                                // 绑定删除按钮事件
-                                const deleteBtn = newPreview.querySelector('.wallpaper-delete-btn');
-                                if (deleteBtn) {
-                                    deleteBtn.addEventListener('click', async function(e) {
-                                        e.stopPropagation();
-                                        const wallpaper = this.dataset.wallpaper;
-                                        
-                                        showConfirmDialog('删除壁纸', '确定要删除这个壁纸吗？', async () => {
-                                            await wallpaperManager.removeUploadedWallpaper(wallpaper);
-                                            
-                                            // 如果删除的是当前壁纸，重置为默认壁纸
-                                            if (wallpaperManager.currentWallpaper === wallpaper) {
-                                                await wallpaperManager.saveWallpaper('white');
-                                                wallpaperManager.applyWallpaper('white');
-                                                
-                                                // 更新预览列表的选中状态
-                                                const previews = popupContent.querySelectorAll('.wallpaper-preview');
-                                                previews.forEach(p => p.classList.remove('selected'));
-                                                const whitePreview = Array.from(previews).find(p => p.dataset.wallpaper === 'white');
-                                                if (whitePreview) {
-                                                    whitePreview.classList.add('selected');
-                                                }
-                                            }
-                                            
-                                            // 移除预览项
-                                            const previewItem = this.closest('.wallpaper-preview');
-                                            if (previewItem) {
-                                                previewItem.remove();
-                                            }
-                                            
-                                            // 更新URL壁纸列表
-                                            renderUrlWallpapersList();
-                                            
-                                            showMessage('壁纸已删除');
-                                        });
-                                    });
-                                }
-                                
-                                // 添加到预览列表
-                                wallpaperPreviews.appendChild(newPreview);
-                                
-                                // 移除其他预览项的选中状态
-                                const previews = popupContent.querySelectorAll('.wallpaper-preview');
-                                previews.forEach(p => {
-                                    if (p !== newPreview) {
-                                        p.classList.remove('selected');
-                                    }
-                                });
-                            } else {
-                                // 如果已存在，更新选中状态
-                                const previews = popupContent.querySelectorAll('.wallpaper-preview');
-                                previews.forEach(p => p.classList.remove('selected'));
-                                existingPreview.classList.add('selected');
-                            }
-                        }
-                        
-                        showMessage('壁纸已上传并设置');
-                    }
-                } else {
-                    showMessage('上传失败，请重试');
-                }
+        fileInput.addEventListener('change', async function() {
+            const file = fileInput.files[0];
+            if (!file) return;
+            const base64Image = await wallpaperManager.handleImageUpload(file);
+            if (!base64Image) {
+                showMessage('上传失败，请重试', 'error');
+                return;
             }
+            await wallpaperManager.addUploadedWallpaper(base64Image);
+            if (await wallpaperManager.saveWallpaper(base64Image)) {
+                wallpaperManager.applyWallpaper(base64Image);
+                if (!previewExists(base64Image)) previewsBox.appendChild(createPreview(base64Image));
+                markSelected(base64Image);
+                showMessage('壁纸已上传并设置');
+            }
+            // 清空选择，否则再选同一张图不会触发 change
+            fileInput.value = '';
         });
     }
 
-    // 绑定URL设置壁纸
+    // URL 添加
     const urlInput = popupContent.querySelector('#wallpaper-url');
     const setUrlButton = popupContent.querySelector('#set-wallpaper-url');
     if (urlInput && setUrlButton) {
         setUrlButton.addEventListener('click', async function() {
             const url = urlInput.value.trim();
-            if (url) {
-                // 保存到已上传壁纸列表
-                await wallpaperManager.addUploadedWallpaper(url);
-                
-                // 将新壁纸添加到已有壁纸列表
-                const wallpaperPreviews = popupContent.querySelector('.wallpaper-previews');
-                if (wallpaperPreviews) {
-                    // 检查是否已存在相同的壁纸
-                    const existingPreview = Array.from(wallpaperPreviews.children).find(p => p.dataset.wallpaper === url);
-                    if (!existingPreview) {
-                        const newPreview = document.createElement('div');
-                        newPreview.className = 'wallpaper-preview';
-                        newPreview.dataset.wallpaper = url;
-                        newPreview.innerHTML = `
-                            <div class="wallpaper-thumbnail" style="background-image: url('${url}'); background-size: cover; background-position: center;"></div>
-                            <button class="wallpaper-delete-btn" data-wallpaper="${url}">&times;</button>
-                        `;
-                        
-                        // 绑定点击事件
-                        newPreview.addEventListener('click', async function() {
-                            const wallpaper = this.dataset.wallpaper;
-                            if (await wallpaperManager.saveWallpaper(wallpaper)) {
-                                wallpaperManager.applyWallpaper(wallpaper);
-                                
-                                // 更新选中状态
-                                const previews = popupContent.querySelectorAll('.wallpaper-preview');
-                                previews.forEach(p => p.classList.remove('selected'));
-                                this.classList.add('selected');
-                            }
-                        });
-                        
-                        // 绑定删除按钮事件
-                        const deleteBtn = newPreview.querySelector('.wallpaper-delete-btn');
-                        if (deleteBtn) {
-                            deleteBtn.addEventListener('click', async function(e) {
-                                e.stopPropagation();
-                                const wallpaper = this.dataset.wallpaper;
-                                
-                                showConfirmDialog('删除壁纸', '确定要删除这个壁纸吗？', async () => {
-                                    await wallpaperManager.removeUploadedWallpaper(wallpaper);
-                                    
-                                    // 如果删除的是当前壁纸，重置为默认壁纸
-                                    // 如果删除的正是当前壁纸，重置为默认
-                                    if (wallpaperManager.currentWallpaper === wallpaper) {
-                                        await wallpaperManager.saveWallpaper('white');
-                                        wallpaperManager.applyWallpaper('white');
-
-                                        const previews = popupContent.querySelectorAll('.wallpaper-preview');
-                                        previews.forEach(p => p.classList.remove('selected'));
-                                        const whitePreview = Array.from(previews).find(p => p.dataset.wallpaper === 'white');
-                                        if (whitePreview) {
-                                            whitePreview.classList.add('selected');
-                                        }
-                                    }
-                                    
-                                    // 移除预览项
-                                    newPreview.remove();
-                                    
-                                    // 更新URL壁纸列表
-                                    renderUrlWallpapersList();
-                                    
-                                    showMessage('壁纸已删除');
-                                });
-                            });
-                        }
-                        
-                        // 添加到预览列表
-                        wallpaperPreviews.appendChild(newPreview);
-                    }
-                }
-                
-                // 更新URL壁纸列表
-                renderUrlWallpapersList();
-                
-                urlInput.value = '';
-                showMessage('URL壁纸已添加');
-            }
+            if (!url) return;
+            await wallpaperManager.addUploadedWallpaper(url);
+            if (!previewExists(url)) previewsBox.appendChild(createPreview(url));
+            renderUrlList();
+            urlInput.value = '';
+            showMessage('URL壁纸已添加');
         });
-
-        // 渲染URL壁纸列表
-        function renderUrlWallpapersList() {
-            const urlWallpapersList = popupContent.querySelector('#url-wallpapers-list');
-            if (!urlWallpapersList) return;
-            
-            // 过滤出所有URL类型的壁纸
-            const urlWallpapers = wallpaperManager.uploadedWallpapers.filter(w => w.startsWith('http'));
-            
-            if (urlWallpapers.length === 0) {
-                urlWallpapersList.innerHTML = '<p style="font-size: 0.8rem; color: rgba(0, 0, 0, 0.6); text-align: center; padding: 12px;">暂无URL壁纸</p>';
-                return;
-            }
-            
-            urlWallpapersList.innerHTML = urlWallpapers.map(url => `
-                <div class="url-wallpaper-item" data-url="${url}">
-                    <div class="url-wallpaper-thumbnail" style="background-image: url('${url}');"></div>
-                    <div class="url-wallpaper-info">
-                        <div class="url-wallpaper-url">${url}</div>
-                    </div>
-                    <div class="url-wallpaper-actions">
-                        <button class="url-wallpaper-btn apply" data-action="apply">应用</button>
-                        <button class="url-wallpaper-btn delete" data-action="delete">删除</button>
-                    </div>
-                </div>
-            `).join('');
-            
-            // 绑定按钮事件
-            urlWallpapersList.querySelectorAll('.url-wallpaper-btn').forEach(btn => {
-                btn.addEventListener('click', async function() {
-                    const action = this.dataset.action;
-                    const item = this.closest('.url-wallpaper-item');
-                    const url = item.dataset.url;
-                    
-                    if (action === 'apply') {
-                        if (await wallpaperManager.saveWallpaper(url)) {
-                            wallpaperManager.applyWallpaper(url);
-                            
-                            // 更新预览列表的选中状态
-                            const previews = popupContent.querySelectorAll('.wallpaper-preview');
-                            previews.forEach(p => p.classList.remove('selected'));
-                            const matchingPreview = Array.from(previews).find(p => p.dataset.wallpaper === url);
-                            if (matchingPreview) {
-                                matchingPreview.classList.add('selected');
-                            }
-                            
-                            showMessage('壁纸已应用');
-                        }
-                    } else if (action === 'delete') {
-                        showConfirmDialog('删除壁纸', '确定要删除这个壁纸吗？', async () => {
-                            // 从列表中删除
-                            await wallpaperManager.removeUploadedWallpaper(url);
-                            
-                            // 从预览列表中删除
-                            const wallpaperPreviews = popupContent.querySelector('.wallpaper-previews');
-                            if (wallpaperPreviews) {
-                                const previewToRemove = Array.from(wallpaperPreviews.children).find(p => p.dataset.wallpaper === url);
-                                if (previewToRemove) {
-                                    previewToRemove.remove();
-                                }
-                            }
-                            
-                            // 如果删除的是当前壁纸，重置为默认
-                            if (wallpaperManager.currentWallpaper === url) {
-                                await wallpaperManager.saveWallpaper('white');
-                                wallpaperManager.applyWallpaper('white');
-                                
-                                // 更新预览列表的选中状态
-                                const previews = popupContent.querySelectorAll('.wallpaper-preview');
-                                previews.forEach(p => p.classList.remove('selected'));
-                                const whitePreview = Array.from(previews).find(p => p.dataset.wallpaper === 'white');
-                                if (whitePreview) {
-                                    whitePreview.classList.add('selected');
-                                }
-                            }
-                            
-                            // 重新渲染URL列表
-                            renderUrlWallpapersList();
-                            
-                            showMessage('URL壁纸已删除');
-                        });
-                    }
-                });
-            });
-        }
-
-        // 初始化时渲染URL壁纸列表
-        renderUrlWallpapersList();
     }
 
-    // 初始化选中状态
-    const currentWallpaper = wallpaperManager.currentWallpaper;
-    const allWallpaperPreviews = popupContent.querySelectorAll('.wallpaper-preview');
-    allWallpaperPreviews.forEach(preview => {
-        if (preview.dataset.wallpaper === currentWallpaper) {
-            preview.classList.add('selected');
-        }
-    });
+    addUploadedPreviews();
+    renderUrlList();
+    // 初始选中状态
+    markSelected(wallpaperManager.currentWallpaper);
 }
-
 
 // 初始化设置界面
 async function initPopupSettingsManagement(popupContent) {
@@ -2774,6 +2569,8 @@ async function initPopupSettingsManagement(popupContent) {
             await iconCacheApi.clearAll();
             clearCacheButton.disabled = false;
             refreshCacheStatus();
+            // 清空后内存里的 blob 地址已经失效，重渲染一次，别让页面继续挂着旧引用
+            renderShortcuts();
             showMessage('图标缓存已清空，下次打开会重新抓取');
         });
     }

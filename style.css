@@ -705,6 +705,7 @@ body {
 }
 
 .shortcut-icon {
+    position: relative;
     width: 40px;
     height: 40px;
     border-radius: 8px;
@@ -895,6 +896,7 @@ body {
 }
 
 .popup-site-icon {
+    position: relative;
     width: 24px;
     height: 24px;
     border-radius: 4px;
@@ -1262,12 +1264,46 @@ body {
 
 
 /* 图标尺寸：原来由 handleIconError() 逐个元素写内联样式（每次渲染 72 × 3 次），
- * 改由 CSS 接管 —— 逻辑完全等价，但渲染时不再产生任何样式写入。 */
+ * 改由 CSS 接管 —— 逻辑完全等价，但渲染时不再产生任何样式写入。
+ *
+ * 图标现在是「盖在首字母上面的一层」：默认透明，加载完才加 .is-loaded 淡入。
+ * 所以图标还没回来的那几秒看到的是底下那个字母，不是一块空白，也不会
+ * 先跳字母再跳图（字母和图是交叉淡入淡出，图盖上去时字母同步退场）。 */
 .site-icon,
 .popup-site-icon-img {
+    position: absolute;
+    inset: 0;
     width: 100%;
     height: 100%;
     object-fit: contain;
+    opacity: 0;
+    transition: opacity 0.18s ease;
+}
+
+.site-icon.is-loaded,
+.popup-site-icon-img.is-loaded {
+    opacity: 1;
+}
+
+/* 首字母垫底层：模板里就渲染好，不依赖任何 JS 判断，第一帧就在 */
+.icon-fallback-text {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    line-height: 1;
+    color: rgba(0, 0, 0, 0.5);
+    user-select: none;
+    pointer-events: none;
+    transition: opacity 0.18s ease;
+}
+
+/* 图盖上来之后字母退场。必须退场：不少 favicon 四周是透明的，
+ * 字母留在下面会从透明区透出来，糊成一团。 */
+.has-icon .icon-fallback-text {
+    opacity: 0;
 }
 
 

@@ -26,7 +26,9 @@
 
     const memUrls = Object.create(null);   // host -> blob: 地址，渲染时同步查这张表
     const memMeta = Object.create(null);   // host -> { src, at }：这张图是哪个源抓的、什么时候存的
-    const attempted = Object.create(null); // host -> true，本次会话已试过，不重复试
+    // host -> 本次会话已经用哪个源试过。**必须带源**：只记域名的话，
+    // 设置里换了图标源再重新渲染，这批域名会被当成「已经试过」直接跳过，白等一次刷新。
+    const attempted = Object.create(null);
     let dbPromise = null;
     let loaded = false;
 
@@ -80,6 +82,7 @@
                 }
                 request.onsuccess = function () {
                     (request.result || []).forEach(function (row) {
+                        // 旧版本可能留下没有 blob 的空记录，跳过即可
                         if (!row || !row.host || !row.blob) return;
                         const url = toObjectUrl(row.blob);
                         if (!url) return;
@@ -99,10 +102,6 @@
     function get(host) {
         if (!host) return null;
         return memUrls[host] || null;
-    }
-
-    function has(host) {
-        return !!(host && memUrls[host]);
     }
 
     function count() {
@@ -140,8 +139,21 @@
     }
 
     // 真正去把图标抓回来。任何一步不对就抛错，由调用方静默吞掉。
+    // 必须带超时：挂住不回的请求会一直占着并发槽（6 个），后面本来能秒回的图标跟着排队。
+    const FETCH_TIMEOUT_MS = 5000;
+
     function fetchOne(url) {
-        return fetch(url, { credentials: 'omit', cache: 'no-store' }).then(function (response) {
+        let timer = null;
+        let controller = null;
+        // 不再强制 no-store：这张图 <img> 那边已经在请求了，允许浏览器命中 HTTP 缓存，
+        // 第二次开标签页就能省掉一半请求（原来每次都要把同一张图再下一遍）。
+        const options = { credentials: 'omit' };
+        if (typeof AbortController !== 'undefined') {
+            controller = new AbortController();
+            options.signal = controller.signal;
+            timer = setTimeout(function () { controller.abort(); }, FETCH_TIMEOUT_MS);
+        }
+        return fetch(url, options).then(function (response) {
             if (!response.ok) throw new Error('HTTP ' + response.status);
             const type = response.headers.get('content-type') || '';
             if (type && type.indexOf('image/') !== 0) throw new Error('不是图片：' + type);
@@ -150,6 +162,8 @@
             if (!blob || !blob.size) throw new Error('空内容');
             if (blob.size > MAX_ICON_BYTES) throw new Error('太大：' + blob.size);
             return blob;
+        }).finally(function () {
+            if (timer !== null) clearTimeout(timer);
         });
     }
 
@@ -192,10 +206,10 @@
         const key = String(srcKey || '');
         const now = Date.now();
         const queue = (hosts || []).filter(function (host) {
-            return host && !attempted[host] && needsFetch(host, key, now);
+            return host && attempted[host] !== key && needsFetch(host, key, now);
         });
         if (!queue.length) return;
-        queue.forEach(function (host) { attempted[host] = true; });
+        queue.forEach(function (host) { attempted[host] = key; });
 
         let active = 0;
         let index = 0;
@@ -216,7 +230,7 @@
                 }).catch(function () {
                     active--;
                     // 抓不到就**保持手里那张图不动**（有的话）—— 这就是「新源拿不到就用旧图」。
-                    // 不重试、不刷日志，下次开新标签页会自动再试一次。
+                    // 不重试、不刷日志。下次开新标签页会重新试一遍。
                     pump();
                 });
             }
@@ -293,7 +307,6 @@
     global.iconCache = {
         loadAll: loadAll,
         get: get,
-        has: has,
         count: count,
         schedule: schedule,
         clearAll: clearAll,
