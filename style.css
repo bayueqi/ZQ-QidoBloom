@@ -617,12 +617,7 @@ body {
     transform: scale(1.05);
     box-shadow: 0 10px 30px rgba(102, 126, 234, 0.4);
     cursor: grabbing;
-}
-
-.shortcut-group.drag-over {
-    border: 2px dashed #667eea;
-    background: rgba(102, 126, 234, 0.1);
-    transform: translateY(-5px);
+    transition: opacity 0.15s ease, box-shadow 0.2s ease;
 }
 
 .group-title {
@@ -692,16 +687,33 @@ body {
 }
 
 .shortcut-item.dragging {
-    opacity: 0.5;
-    transform: scale(1.05);
-    box-shadow: 0 10px 30px rgba(102, 126, 234, 0.4);
-    cursor: grabbing;
+    opacity: 0.3;
+    pointer-events: none;
 }
 
-.shortcut-item.drag-over {
-    border: 2px dashed #667eea;
-    background: rgba(102, 126, 234, 0.1);
-    transform: translateY(-3px);
+/* 拖拽时的影子：克隆被拖图标跟手，原图标透明占位。
+   transition:none 必须盖掉 .shortcut-item 的 all 0.3s，否则跟手会滞后。 */
+.drag-ghost {
+    position: fixed;
+    left: 0;
+    top: 0;
+    margin: 0;
+    pointer-events: none;
+    z-index: 99999;
+    opacity: 0.85;
+    transform: scale(1.06);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3);
+    transition: none;
+}
+
+/* 拖动排序期间：禁掉 hover 的位移（干扰让位测量）+ 禁掉文字选中（拖拽会误选文字） */
+.shortcuts.sorting {
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.shortcuts.sorting .shortcut-item:hover {
+    transform: none;
 }
 
 .shortcut-icon {

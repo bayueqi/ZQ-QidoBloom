@@ -220,13 +220,19 @@ function renderPage() {
     }
 
     const iconSrc = iconUrlFor(currentTab.url);
-    el.favicon.src = iconSrc;
-    el.favicon.hidden = false;
-    el.fallback.hidden = true;
+    // 图标慢的时候先显示首字母，加载完成再显示图标 —— 和起始页一致，
+    // 别在图标还没回来的那几秒留一个空白格。
+    el.fallback.hidden = false;
+    el.favicon.hidden = true;
+    el.favicon.addEventListener('load', () => {
+        el.favicon.hidden = false;
+        el.fallback.hidden = true;
+    });
     el.favicon.addEventListener('error', () => {
         el.favicon.hidden = true;
         el.fallback.hidden = false;
     });
+    el.favicon.src = iconSrc;
 }
 
 // ---------- 当前标签页 ----------

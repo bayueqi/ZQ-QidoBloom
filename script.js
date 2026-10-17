@@ -132,8 +132,6 @@ class PopupDataManager {
 class SearchEnginesManager {
     constructor() {
         this.engines = [];
-        // 默认列表只有一份，就是文件下方那个 DEFAULT_SEARCH_ENGINES
-        this.defaultEngines = DEFAULT_SEARCH_ENGINES;
     }
 
     // 加载数据
@@ -145,16 +143,16 @@ class SearchEnginesManager {
                     this.engines = JSON.parse(localData);
                 } catch (error) {
                     console.error('Failed to parse saved engines:', error);
-                    this.engines = [...this.defaultEngines];
+                    this.engines = [...DEFAULT_SEARCH_ENGINES];
                     this.saveData();
                 }
             } else {
-                this.engines = [...this.defaultEngines];
+                this.engines = [...DEFAULT_SEARCH_ENGINES];
                 this.saveData();
             }
         } catch (error) {
             console.error('Load engines error:', error);
-            this.engines = [...this.defaultEngines];
+            this.engines = [...DEFAULT_SEARCH_ENGINES];
             this.saveData();
         }
     }
@@ -199,19 +197,6 @@ class SearchEnginesManager {
             engine.url = engineData.url;
             await this.saveData();
         }
-    }
-
-    // 设置默认搜索引擎
-    async setDefaultEngine(id) {
-        this.engines.forEach(engine => {
-            engine.default = engine.id === id;
-        });
-        await this.saveData();
-    }
-
-    // 获取默认搜索引擎
-    getDefaultEngine() {
-        return this.engines.find(engine => engine.default) || this.engines[0];
     }
 }
 
@@ -328,6 +313,12 @@ function escapeHtml(value) {
     return String(value == null ? '' : value).replace(/[&<>"']/g, ch => HTML_ESCAPES[ch]);
 }
 
+// 把 URL 安全地放进 CSS url('...')：转义反斜杠和单引号。
+// URL 里带 ' 会提前截断 CSS 字符串，壁纸缩略图就显示不出来。
+function cssUrl(value) {
+    return String(value == null ? '' : value).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+}
+
 // 图标垫底 + 淡入：首字母仍然是原来那套「没有就建一个」的兜底，只是不再等 error 事件。
 // 拿不到图的站请求会挂很久，等 error 这段时间格子就是空的 —— 所以渲染完先把字母建好垫着，
 // 图标是盖在它上面的一层，加载完才淡入；图挂了就退回去，露出的还是那个字母。
@@ -426,7 +417,6 @@ const WEEKDAYS = ['星期日', '星期一', '星期二', '星期三', '星期四
 
 function updateDateTime() {
     const now = new Date();
-    const weekdays = WEEKDAYS;
 
     if (!timeElement) timeElement = document.getElementById('time');
     if (!dateElement) dateElement = document.getElementById('date');
@@ -439,7 +429,7 @@ function updateDateTime() {
     }
 
     if (dateElement) {
-        const dateString = `${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日 ${weekdays[now.getDay()]}`;
+        const dateString = `${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日 ${WEEKDAYS[now.getDay()]}`;
         if (dateString !== lastDateString) {
             lastDateString = dateString;
             dateElement.textContent = dateString;
@@ -733,15 +723,20 @@ function importConfig() {
     input.click();
 }
 
-// 加载搜索引擎数据
+// 加载搜索引擎数据。搜索结果页、导出配置会反复读，所以按「原始字符串」缓存：
+// 管理面板保存时直接写 localStorage，字符串变了缓存自动失效。
+let enginesRawCache;
+let enginesDataCache = DEFAULT_SEARCH_ENGINES;
+
 async function loadSearchEngines() {
     try {
         const localData = localStorage.getItem('searchEngines');
-        if (localData) {
-            return JSON.parse(localData);
-        }
-
-        return DEFAULT_SEARCH_ENGINES;
+        if (enginesRawCache === localData) return enginesDataCache;
+        let engines = localData ? JSON.parse(localData) : DEFAULT_SEARCH_ENGINES;
+        if (!Array.isArray(engines) || !engines.length) engines = DEFAULT_SEARCH_ENGINES;
+        enginesRawCache = localData;
+        enginesDataCache = engines;
+        return engines;
     } catch (error) {
         console.error('Load search engines error:', error);
         return DEFAULT_SEARCH_ENGINES;
@@ -825,8 +820,6 @@ async function initNewSearch() {
 // 原来是给每个图标挂 7 个监听器、每次重渲染全部重绑（一次渲染产生 N×7 个新闭包），
 // 现在只留一套容器级处理器，hover 位移交回 CSS，重渲染不再有任何绑定开销。
 let shortcutsDragBound = false;
-let draggedItem = null;
-let draggedGroup = null;
 
 function bindShortcutsDragOnce() {
     if (shortcutsDragBound) return;
@@ -834,127 +827,220 @@ function bindShortcutsDragOnce() {
     if (!container) return;
     shortcutsDragBound = true;
 
-    function clearDragOver() {
-        container.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
-    }
+    // 拖拽状态：null 表示没在拖。moved 区分「点击打开」和「拖动排序」。
+    // 不用浏览器原生拖拽（HTML5 DnD）——它自带的虚线 ghost、禁止光标、
+    // 「source 元素不能在拖拽中移动」的约束正是之前拖不动/闪烁/重影的根源。
+    // 改成 pointer 事件自己接管：克隆影子跟手，原图标透明占位，其余图标让位。
+    let drag = null;
+    let suppressClick = false;
 
-    // 同一个图标内部（图标图 -> 文字）移动不算离开，避免 drag-over 闪烁
-    function enteredOther(target, selector, current) {
-        if (!target || typeof target.closest !== 'function') return true;
-        return target.closest(selector) !== current;
-    }
+    // 让位动画用 JS 每帧驱动（偏移向 0 指数衰减，天然缓出），不用 CSS transition：
+    // transition 在高频下每帧被重置，图标永远停在动画开头，表现为抖动/重影。
+    const animOffset = new Map(); // el -> {x, y}：相对布局位置的当前偏移
+    let animRaf = null;
 
-    container.addEventListener('dragstart', function (event) {
-        const item = event.target.closest('.shortcut-item');
-        const group = event.target.closest('.shortcut-group');
-        if (item) {
-            draggedItem = item;
-            draggedGroup = null;
-            item.classList.add('dragging');
-        } else if (group) {
-            draggedGroup = group;
-            draggedItem = null;
-            group.classList.add('dragging');
-        } else {
-            return;
-        }
-        if (event.dataTransfer) {
-            event.dataTransfer.effectAllowed = 'move';
-            event.dataTransfer.setData('text/plain', '');
-        }
-    });
-
-    container.addEventListener('dragover', function (event) {
-        const item = event.target.closest('.shortcut-item');
-        const group = event.target.closest('.shortcut-group');
-        if (!item && !group) return;
-        event.preventDefault();
-        // 拖网站：同组换位、跨组移动都允许；拖分组：允许换序
-        if (event.dataTransfer && (draggedItem || (group && draggedGroup))) {
-            event.dataTransfer.dropEffect = 'move';
-        }
-    });
-
-    container.addEventListener('dragenter', function (event) {
-        const item = event.target.closest('.shortcut-item');
-        if (item) {
-            if (draggedItem && draggedItem !== item) item.classList.add('drag-over');
-            return;
-        }
-        const group = event.target.closest('.shortcut-group');
-        if (group && draggedGroup && draggedGroup !== group) group.classList.add('drag-over');
-    });
-
-    container.addEventListener('dragleave', function (event) {
-        const item = event.target.closest('.shortcut-item');
-        if (item) {
-            if (enteredOther(event.relatedTarget, '.shortcut-item', item)) item.classList.remove('drag-over');
-            return;
-        }
-        const group = event.target.closest('.shortcut-group');
-        if (group && enteredOther(event.relatedTarget, '.shortcut-group', group)) {
-            group.classList.remove('drag-over');
-        }
-    });
-
-    container.addEventListener('drop', async function (event) {
-        const item = event.target.closest('.shortcut-item');
-        const group = event.target.closest('.shortcut-group');
-        if (!item && !group) return;
-        event.preventDefault();
-
-        // ---- 拖网站：落到图标上就插到它前/后，落到分组空白处就移到该分组末尾 ----
-        if (draggedItem) {
-            let reference = null;
-            let targetContainer;
-            if (item) {
-                item.classList.remove('drag-over');
-                if (draggedItem === item) return;
-                reference = item;
-                targetContainer = item.closest('.shortcut-items');
+    function tickAnim() {
+        animRaf = null;
+        let alive = false;
+        animOffset.forEach((st, el) => {
+            st.x *= 0.72;
+            st.y *= 0.72;
+            if (Math.abs(st.x) < 0.5 && Math.abs(st.y) < 0.5) {
+                animOffset.delete(el);
+                el.style.transform = '';
+                el.style.transition = '';
             } else {
-                targetContainer = group.querySelector('.shortcut-items');
+                el.style.transform = `translate(${st.x}px, ${st.y}px)`;
+                alive = true;
             }
-            if (!targetContainer) return;
+        });
+        if (alive) animRaf = requestAnimationFrame(tickAnim);
+    }
 
-            if (reference) {
-                const siblings = Array.from(targetContainer.children);
-                const from = siblings.indexOf(draggedItem);
-                const to = siblings.indexOf(reference);
-                if (to === -1) return;
-                // 同组内按拖动方向决定插到目标前还是后；跨组时 from 为 -1，插到目标前
-                targetContainer.insertBefore(
-                    draggedItem,
-                    from !== -1 && from < to ? reference.nextSibling : reference
-                );
-            } else if (targetContainer !== draggedItem.parentElement) {
-                targetContainer.appendChild(draggedItem);
+    function settleAnims() {
+        animOffset.clear();
+        if (animRaf) { cancelAnimationFrame(animRaf); animRaf = null; }
+        container.querySelectorAll('.shortcut-item').forEach(el => {
+            el.style.transform = '';
+            el.style.transition = '';
+        });
+    }
+
+    // 判定插到目标前/后：鼠标相对目标中心的主轴偏移
+    function dropSide(item, clientX, clientY) {
+        const r = item.getBoundingClientRect();
+        const dx = clientX - (r.left + r.width / 2);
+        const dy = clientY - (r.top + r.height / 2);
+        return Math.abs(dx) > Math.abs(dy) ? dx < 0 : dy < 0;
+    }
+
+    // FLIP 让位：把被拖元素（透明占位）插到目标位置，其余图标 transform 从旧位滑到新位
+    function shiftItemTo(dragged, target, before, targetContainerOverride) {
+        const targetContainer = targetContainerOverride || (target ? target.parentElement : null);
+        if (!targetContainer) return;
+        const sourceContainer = dragged.parentElement;
+        const anchor = target ? (before ? target : target.nextSibling) : null;
+        if (sourceContainer === targetContainer) {
+            if (anchor ? dragged.nextSibling === anchor : !dragged.nextSibling) return;
+        }
+        const siblings = [];
+        new Set([sourceContainer, targetContainer].filter(Boolean)).forEach(c => {
+            Array.from(c.children).forEach(el => { if (el !== dragged) siblings.push(el); });
+        });
+        const first = new Map();
+        siblings.forEach(el => first.set(el, el.getBoundingClientRect()));
+        if (anchor) targetContainer.insertBefore(dragged, anchor);
+        else targetContainer.appendChild(dragged);
+        siblings.forEach(el => {
+            const prev = first.get(el);
+            if (!prev) return;
+            el.style.transition = 'none';
+            el.style.transform = '';
+            const now = el.getBoundingClientRect();
+            const dx = prev.left - now.left;
+            const dy = prev.top - now.top;
+            if (!dx && !dy) { el.style.transition = ''; return; }
+            animOffset.set(el, { x: dx, y: dy });
+            el.style.transform = `translate(${dx}px, ${dy}px)`;
+        });
+        if (animOffset.size && !animRaf) animRaf = requestAnimationFrame(tickAnim);
+    }
+
+    // 分组换位（分组少、不频繁，直接换 + 靠 CSS transition 平滑）
+    function shiftGroupTo(dragged, target, before) {
+        const parent = target.parentElement;
+        if (!parent || parent !== dragged.parentElement || dragged === target) return;
+        const anchor = before ? target : target.nextSibling;
+        if (dragged.nextSibling === anchor) return;
+        parent.insertBefore(dragged, anchor);
+    }
+
+    // 克隆一个影子图标跟手；原图标 opacity 0 透明占位（占住网格不塌）
+    function createGhost(clientX, clientY) {
+        const el = drag.el;
+        const rect = el.getBoundingClientRect();
+        const ghost = el.cloneNode(true);
+        ghost.removeAttribute('href');
+        ghost.removeAttribute('draggable');
+        ghost.classList.remove('dragging'); // 克隆发生在加 dragging 类之后，不带掉 opacity:0
+        ghost.classList.add('drag-ghost');
+        ghost.style.width = rect.width + 'px';
+        ghost.style.height = rect.height + 'px';
+        document.body.appendChild(ghost);
+        drag.grabX = clientX - rect.left;
+        drag.grabY = clientY - rect.top;
+        moveGhost(clientX, clientY);
+        drag.ghost = ghost;
+    }
+
+    function moveGhost(clientX, clientY) {
+        const g = drag.ghost;
+        if (!g) return;
+        g.style.left = (clientX - drag.grabX) + 'px';
+        g.style.top = (clientY - drag.grabY) + 'px';
+    }
+
+    // 找指针下方的目标（ghost 和被拖元素都是 pointer-events:none，会被穿透）
+    function hit(clientX, clientY, selector) {
+        const node = document.elementFromPoint(clientX, clientY);
+        if (!node || typeof node.closest !== 'function') return null;
+        const found = node.closest(selector);
+        if (!found || found === drag.el || drag.el.contains(found)) return null;
+        return found;
+    }
+
+    // 第一次越过阈值：进入拖拽态
+    function startDrag(e) {
+        drag.moved = true;
+        suppressClick = true;
+        settleAnims(); // 清掉上一次拖拽可能残留的让位动画，从干净状态开始
+        container.classList.add('sorting');
+        drag.el.classList.add('dragging');
+        if (drag.type === 'item') createGhost(e.clientX, e.clientY);
+    }
+
+    function onMove(e) {
+        if (!drag) return;
+        if (!drag.moved) {
+            if (Math.abs(e.clientX - drag.startX) < 5 && Math.abs(e.clientY - drag.startY) < 5) return;
+            startDrag(e);
+        }
+        if (drag.type === 'item') {
+            moveGhost(e.clientX, e.clientY);
+            const target = hit(e.clientX, e.clientY, '.shortcut-item');
+            if (target) shiftItemTo(drag.el, target, dropSide(target, e.clientX, e.clientY));
+        } else {
+            const target = hit(e.clientX, e.clientY, '.shortcut-group');
+            if (target) shiftGroupTo(drag.el, target, dropSide(target, e.clientX, e.clientY));
+        }
+    }
+
+    function finishDrag(e) {
+        const el = drag.el;
+        const ghost = drag.ghost;
+        const type = drag.type;
+
+        if (type === 'item') {
+            const target = hit(e.clientX, e.clientY, '.shortcut-item');
+            if (target) shiftItemTo(el, target, dropSide(target, e.clientX, e.clientY));
+            if (ghost) {
+                const landing = el.getBoundingClientRect();
+                ghost.style.transition = 'left .18s cubic-bezier(.22,.61,.36,1), top .18s cubic-bezier(.22,.61,.36,1), transform .18s cubic-bezier(.22,.61,.36,1)';
+                ghost.style.left = landing.left + 'px';
+                ghost.style.top = landing.top + 'px';
+                ghost.style.transform = 'scale(1)';
+                const done = () => {
+                    if (ghost.parentElement) ghost.remove();
+                    el.classList.remove('dragging');
+                };
+                ghost.addEventListener('transitionend', done, { once: true });
+                setTimeout(done, 240);
+            } else {
+                el.classList.remove('dragging');
             }
-            await saveSiteLayout();
-            return;
+            saveSiteLayout();
+        } else {
+            const target = hit(e.clientX, e.clientY, '.shortcut-group');
+            if (target) shiftGroupTo(el, target, dropSide(target, e.clientX, e.clientY));
+            el.classList.remove('dragging');
+            saveNewGroupOrder();
         }
 
-        // ---- 拖分组 ----
-        if (!group || !draggedGroup || draggedGroup === group) return;
-        group.classList.remove('drag-over');
+        container.classList.remove('sorting');
+        // 不清让位动画：让 tickAnim 自然衰减到 0，其余图标平滑滑到最终位，不瞬移
+        drag = null;
+    }
 
-        const groupsContainer = group.parentElement;
-        const groupsArray = Array.from(groupsContainer.children);
-        const draggedIndex = groupsArray.indexOf(draggedGroup);
-        const dropIndex = groupsArray.indexOf(group);
-        if (draggedIndex === -1 || dropIndex === -1) return;
+    function onUp(e) {
+        if (!drag) return;
+        if (!drag.moved) { drag = null; return; } // 没拖动过 = 点击，交给浏览器打开
+        finishDrag(e);
+    }
 
-        groupsContainer.insertBefore(draggedGroup, draggedIndex < dropIndex ? group.nextSibling : group);
-        await saveNewGroupOrder();
+    // 拖拽结束后浏览器若仍触发 click，拦掉，避免误开链接
+    container.addEventListener('click', function (e) {
+        if (suppressClick) {
+            e.preventDefault();
+            e.stopPropagation();
+            suppressClick = false;
+        }
+    }, true);
+
+    container.addEventListener('pointerdown', function (e) {
+        if (e.button !== 0) return;
+        suppressClick = false;
+        const item = e.target.closest('.shortcut-item');
+        const group = e.target.closest('.shortcut-group');
+        if (item) {
+            drag = { type: 'item', el: item, startX: e.clientX, startY: e.clientY, moved: false, ghost: null, grabX: 0, grabY: 0 };
+        } else if (group) {
+            drag = { type: 'group', el: group, startX: e.clientX, startY: e.clientY, moved: false, ghost: null, grabX: 0, grabY: 0 };
+        }
     });
 
-    container.addEventListener('dragend', function () {
-        if (draggedItem) draggedItem.classList.remove('dragging');
-        if (draggedGroup) draggedGroup.classList.remove('dragging');
-        draggedItem = null;
-        draggedGroup = null;
-        clearDragOver();
-    });
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+    document.addEventListener('pointercancel', onUp);
 
     // 保存图标的落位：同组换位置、跨组移动都走这里。
     // 以 DOM 为准重建每个分组的 sites 顺序 —— 跨组移动会同时动到两个分组，
@@ -1297,7 +1383,7 @@ async function renderShortcuts() {
         const iconHosts = [];
 
         shortcutsContainer.innerHTML = groups.map(group => `
-            <div class="shortcut-group" draggable="true" data-group-id="${escapeHtml(group.id)}">
+            <div class="shortcut-group" data-group-id="${escapeHtml(group.id)}">
                 <h3 class="group-title">${escapeHtml(group.name)}</h3>
                 <div class="shortcut-items">
                     ${(group.sites || []).map(site => {
@@ -1308,9 +1394,9 @@ async function renderShortcuts() {
                         // 标记自定义图标：后台抓到同域名的图时，applyCachedIcon 要跳过它
                         const customAttr = hasCustomIcon(site) ? ' data-icon-custom="1"' : '';
                         return `
-                        <a href="${escapeHtml(site.url)}" class="shortcut-item" draggable="true" target="_blank" data-site-id="${escapeHtml(site.id)}">
+                        <a href="${escapeHtml(site.url)}" class="shortcut-item" draggable="false" target="_blank" data-site-id="${escapeHtml(site.id)}">
                             <div class="shortcut-icon">
-                                <img src="${escapeHtml(src)}" alt="${escapeHtml(site.name)} icon" class="site-icon" data-site-name="${escapeHtml(site.name)}" data-icon-host="${escapeHtml(host)}"${customAttr}>
+                                <img src="${escapeHtml(src)}" alt="${escapeHtml(site.name)} icon" class="site-icon" draggable="false" data-site-name="${escapeHtml(site.name)}" data-icon-host="${escapeHtml(host)}"${customAttr}>
                             </div>
                             <span class="shortcut-name">${escapeHtml(site.name)}</span>
                         </a>`;
@@ -2367,7 +2453,7 @@ async function initPopupWallpaperManagement(popupContent) {
 
         const thumb = document.createElement('div');
         thumb.className = 'wallpaper-thumbnail';
-        thumb.style.backgroundImage = `url('${wallpaper}')`;
+        thumb.style.backgroundImage = `url('${cssUrl(wallpaper)}')`;
         thumb.style.backgroundSize = 'cover';
         thumb.style.backgroundPosition = 'center';
 
@@ -2410,22 +2496,47 @@ async function initPopupWallpaperManagement(popupContent) {
     function renderUrlList() {
         if (!urlList) return;
         const urls = wallpaperManager.uploadedWallpapers.filter(item => item.startsWith('http'));
+        urlList.innerHTML = '';
         if (!urls.length) {
             urlList.innerHTML = '<p style="font-size: 0.8rem; color: rgba(0, 0, 0, 0.6); text-align: center; padding: 12px;">暂无URL壁纸</p>';
             return;
         }
-        urlList.innerHTML = urls.map(url => `
-            <div class="url-wallpaper-item" data-url="${escapeHtml(url)}">
-                <div class="url-wallpaper-thumbnail" style="background-image: url('${escapeHtml(url)}');"></div>
-                <div class="url-wallpaper-info">
-                    <div class="url-wallpaper-url">${escapeHtml(url)}</div>
-                </div>
-                <div class="url-wallpaper-actions">
-                    <button class="url-wallpaper-btn apply" data-action="apply">应用</button>
-                    <button class="url-wallpaper-btn delete" data-action="delete">删除</button>
-                </div>
-            </div>
-        `).join('');
+        // 用 DOM 节点而不是 innerHTML：URL 是用户手填的，拼字符串既要转义、又怕
+        // 单引号截断 CSS url()。直接建节点，dataset / textContent 都不需要转义。
+        urls.forEach(url => {
+            const item = document.createElement('div');
+            item.className = 'url-wallpaper-item';
+            item.dataset.url = url;
+
+            const thumb = document.createElement('div');
+            thumb.className = 'url-wallpaper-thumbnail';
+            thumb.style.backgroundImage = `url('${cssUrl(url)}')`;
+
+            const info = document.createElement('div');
+            info.className = 'url-wallpaper-info';
+            const urlText = document.createElement('div');
+            urlText.className = 'url-wallpaper-url';
+            urlText.textContent = url;
+            info.appendChild(urlText);
+
+            const actions = document.createElement('div');
+            actions.className = 'url-wallpaper-actions';
+            const applyBtn = document.createElement('button');
+            applyBtn.className = 'url-wallpaper-btn apply';
+            applyBtn.dataset.action = 'apply';
+            applyBtn.textContent = '应用';
+            const delBtn = document.createElement('button');
+            delBtn.className = 'url-wallpaper-btn delete';
+            delBtn.dataset.action = 'delete';
+            delBtn.textContent = '删除';
+            actions.appendChild(applyBtn);
+            actions.appendChild(delBtn);
+
+            item.appendChild(thumb);
+            item.appendChild(info);
+            item.appendChild(actions);
+            urlList.appendChild(item);
+        });
     }
 
     // URL 列表的按钮走一个委托：每次重渲染不必再重新绑一遍（原来每项两个监听器）
