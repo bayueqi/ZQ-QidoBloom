@@ -1141,6 +1141,25 @@ function bindShortcutsDragOnce() {
         createGhost(e.clientX, e.clientY);
     }
 
+    // 图标落位：优先对齐鼠标下的图标；空分组没有兄弟可对齐，直接落到列表末尾。
+    // 每帧只取一次 elementFromPoint（拖拽热路径，之前这里取了两次）。
+    function dropItemAt(el, clientX, clientY) {
+        const node = document.elementFromPoint(clientX, clientY);
+        if (!node || typeof node.closest !== 'function') return;
+
+        const item = node.closest('.shortcut-item');
+        if (item && item !== el) {
+            shiftItemTo(el, item, dropSide(item, clientX, clientY));
+            return;
+        }
+        // 只有真空分组才兜底追加。非空分组里鼠标落在间隙/内边距上时若也追加，
+        // 图标会在「对齐到某个图标」和「跳到末尾」之间每帧来回跳，表现为抽搐。
+        const group = node.closest('.shortcut-group');
+        const list = group && group.querySelector('.shortcut-items');
+        if (!list || list.children.length > (el.parentElement === list ? 1 : 0)) return;
+        shiftItemTo(el, null, false, list);
+    }
+
     function onMove(e) {
         if (!drag) return;
         if (!drag.moved) {
@@ -1149,8 +1168,7 @@ function bindShortcutsDragOnce() {
         }
         moveGhost(e.clientX, e.clientY);
         if (drag.type === 'item') {
-            const target = hit(e.clientX, e.clientY, '.shortcut-item');
-            if (target) shiftItemTo(drag.el, target, dropSide(target, e.clientX, e.clientY));
+            dropItemAt(drag.el, e.clientX, e.clientY);
         } else {
             const target = hit(e.clientX, e.clientY, '.shortcut-group');
             if (target) shiftGroupTo(drag.el, target, dropSide(target, e.clientX, e.clientY));
@@ -1163,8 +1181,7 @@ function bindShortcutsDragOnce() {
         const type = drag.type;
 
         if (type === 'item') {
-            const target = hit(e.clientX, e.clientY, '.shortcut-item');
-            if (target) shiftItemTo(el, target, dropSide(target, e.clientX, e.clientY));
+            dropItemAt(el, e.clientX, e.clientY);
             saveSiteLayout();
         } else {
             const target = hit(e.clientX, e.clientY, '.shortcut-group');
