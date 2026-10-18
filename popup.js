@@ -39,7 +39,8 @@ function iconUrlFor(url) {
         console.error('读取图标 API 设置失败:', error);
     }
     if (template.includes('{domain}')) {
-        return template.replace('{domain}', QDB.hostOf(url));
+        // 和起始页保持一致：保留 www.，否则同一个站在两处可能取到不同的图
+        return template.replace('{domain}', QDB.siteHostname(url));
     }
     return template;
 }

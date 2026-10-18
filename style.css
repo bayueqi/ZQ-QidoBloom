@@ -634,13 +634,11 @@ body {
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
 }
 
-/* 拖拽相关样式 */
+/* 拖拽中的原卡片只是透明占位（跟手的是 .drag-ghost 影子），
+   所以不再放大、不投影 —— 那两样会跟影子重叠成两层 */
 .shortcut-group.dragging {
-    opacity: 0.5;
-    transform: scale(1.05);
-    box-shadow: 0 10px 30px rgba(102, 126, 234, 0.4);
-    cursor: grabbing;
-    transition: opacity 0.15s ease, box-shadow 0.2s ease;
+    opacity: 0.3;
+    pointer-events: none;
 }
 
 .group-title {
@@ -727,15 +725,25 @@ body {
     transform: scale(1.06);
     box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3);
     transition: none;
+    /* 分组影子会继承卡片的模糊背景，整张卡片模糊开销太大，关掉 */
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
 }
 
 /* 拖动排序期间：禁掉 hover 的位移（干扰让位测量）+ 禁掉文字选中（拖拽会误选文字） */
 .shortcuts.sorting {
     user-select: none;
     -webkit-user-select: none;
+    /* 被拖元素本身是 pointer-events:none，光标要从容器上给 */
+    cursor: grabbing;
 }
 
 .shortcuts.sorting .shortcut-item:hover {
+    transform: none;
+}
+
+/* 拖拽期间禁掉分组卡片的悬停位移，否则 hover 的 -5px 会干扰让位动画的位置测量 */
+.shortcuts.sorting .shortcut-group:hover {
     transform: none;
 }
 

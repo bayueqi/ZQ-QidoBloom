@@ -12,9 +12,15 @@ class PopupDataManager {
         this.data = QDB.readData();
     }
 
-    // 保存数据
+    // 保存数据（localStorage 写满时不要把异常抛给调用方）
     async saveData() {
-        QDB.writeData(this.data);
+        try {
+            QDB.writeData(this.data);
+            return true;
+        } catch (error) {
+            console.error('Save data error:', error);
+            return false;
+        }
     }
 
     // 获取所有分组
@@ -480,7 +486,8 @@ async function exportConfig() {
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+        // 立刻 revoke 有可能把还没落盘的下载掐掉，延到下一轮再释放
+        setTimeout(() => URL.revokeObjectURL(url), 0);
 
         showMessage('配置导出成功！');
     } catch (error) {
@@ -602,29 +609,29 @@ function showConfirmDialog(title, message, onConfirm, onCancel) {
         content.style.opacity = '1';
     }, 10);
 
-    // 绑定事件
-    document.getElementById('dialog-cancel').addEventListener('click', () => {
+    // 关闭动画 + 移除，取消 / 确定 / 点背景三条路共用
+    const close = () => {
         content.style.transform = 'translateY(50px) scale(0.98)';
         content.style.opacity = '0';
         setTimeout(() => dialog.remove(), 300);
+    };
+
+    // 绑定事件
+    document.getElementById('dialog-cancel').addEventListener('click', () => {
+        close();
         if (onCancel) onCancel();
     });
 
     document.getElementById('dialog-confirm').addEventListener('click', () => {
-        content.style.transform = 'translateY(50px) scale(0.98)';
-        content.style.opacity = '0';
-        setTimeout(() => dialog.remove(), 300);
+        close();
         if (onConfirm) onConfirm();
     });
 
     // 点击背景关闭
     dialog.addEventListener('click', (e) => {
-        if (e.target === dialog) {
-            content.style.transform = 'translateY(50px) scale(0.98)';
-            content.style.opacity = '0';
-            setTimeout(() => dialog.remove(), 300);
-            if (onCancel) onCancel();
-        }
+        if (e.target !== dialog) return;
+        close();
+        if (onCancel) onCancel();
     });
 }
 
@@ -807,7 +814,6 @@ async function githubUpload() {
         });
         gistId = created.id;
     }
-    writeGithubSync({ token: settings.token });
     return gistId;
 }
 
@@ -845,10 +851,15 @@ function initPopupSyncManagement(popupContent) {
     function persist() {
         writeGithubSync({ token: tokenInput.value.trim() });
     }
+
+    function setHint(text) {
+        hint.textContent = text;
+        hint.style.color = 'rgba(0,0,0,0.7)';
+    }
+
     saveBtn.addEventListener('click', () => {
         persist();
-        hint.textContent = 'Token 已保存';
-        hint.style.color = 'rgba(0,0,0,0.7)';
+        setHint('Token 已保存');
     });
 
     function setBusy(busy) {
@@ -861,12 +872,10 @@ function initPopupSyncManagement(popupContent) {
         setBusy(true);
         try {
             await githubUpload();
-            hint.textContent = '已同步到 GitHub';
-            hint.style.color = 'rgba(0,0,0,0.7)';
+            setHint('已同步到 GitHub');
             showMessage('已同步到 GitHub');
         } catch (error) {
-            hint.textContent = '上传失败：' + error.message;
-            hint.style.color = 'rgba(0,0,0,0.7)';
+            setHint('上传失败：' + error.message);
             showMessage('上传失败：' + error.message);
         } finally {
             setBusy(false);
@@ -878,15 +887,13 @@ function initPopupSyncManagement(popupContent) {
         setBusy(true);
         try {
             await githubDownload();
-            hint.textContent = '已从 GitHub 拉取并应用';
-            hint.style.color = 'rgba(0,0,0,0.7)';
+            setHint('已从 GitHub 拉取并应用');
             applyWallpaper();
             await initNewSearch();
             await renderShortcuts();
             showMessage('已从 GitHub 拉取配置');
         } catch (error) {
-            hint.textContent = '下载失败：' + error.message;
-            hint.style.color = 'rgba(0,0,0,0.7)';
+            setHint('下载失败：' + error.message);
             showMessage('下载失败：' + error.message);
         } finally {
             setBusy(false);
@@ -1033,12 +1040,13 @@ function bindShortcutsDragOnce() {
     }
 
     function settleAnims() {
-        animOffset.clear();
         if (animRaf) { cancelAnimationFrame(animRaf); animRaf = null; }
-        container.querySelectorAll('.shortcut-item').forEach(el => {
+        // 只清还在动画里的元素，不再整块 querySelectorAll
+        animOffset.forEach((st, el) => {
             el.style.transform = '';
             el.style.transition = '';
         });
+        animOffset.clear();
     }
 
     // 判定插到目标前/后：鼠标相对目标中心的主轴偏移
@@ -1049,7 +1057,8 @@ function bindShortcutsDragOnce() {
         return Math.abs(dx) > Math.abs(dy) ? dx < 0 : dy < 0;
     }
 
-    // FLIP 让位：把被拖元素（透明占位）插到目标位置，其余图标 transform 从旧位滑到新位
+    // FLIP 让位：把被拖元素（透明占位）插到目标位置，其余元素 transform 从旧位滑到新位。
+    // 图标和分组共用这一套，保证两种拖拽的让位手感完全一致。
     function shiftItemTo(dragged, target, before, targetContainerOverride) {
         const targetContainer = targetContainerOverride || (target ? target.parentElement : null);
         if (!targetContainer) return;
@@ -1081,13 +1090,11 @@ function bindShortcutsDragOnce() {
         if (animOffset.size && !animRaf) animRaf = requestAnimationFrame(tickAnim);
     }
 
-    // 分组换位（分组少、不频繁，直接换 + 靠 CSS transition 平滑）
+    // 分组换位：直接复用图标的让位逻辑（同一父容器，去掉跨容器那部分）。
+    // 分组是 grid item，插到新位置后其余卡片的位置会变，FLIP 负责把它们滑过去。
     function shiftGroupTo(dragged, target, before) {
-        const parent = target.parentElement;
-        if (!parent || parent !== dragged.parentElement || dragged === target) return;
-        const anchor = before ? target : target.nextSibling;
-        if (dragged.nextSibling === anchor) return;
-        parent.insertBefore(dragged, anchor);
+        if (target.parentElement !== dragged.parentElement || dragged === target) return;
+        shiftItemTo(dragged, target, before);
     }
 
     // 克隆一个影子图标跟手；原图标 opacity 0 透明占位（占住网格不塌）
@@ -1131,7 +1138,7 @@ function bindShortcutsDragOnce() {
         settleAnims(); // 清掉上一次拖拽可能残留的让位动画，从干净状态开始
         container.classList.add('sorting');
         drag.el.classList.add('dragging');
-        if (drag.type === 'item') createGhost(e.clientX, e.clientY);
+        createGhost(e.clientX, e.clientY);
     }
 
     function onMove(e) {
@@ -1140,8 +1147,8 @@ function bindShortcutsDragOnce() {
             if (Math.abs(e.clientX - drag.startX) < 5 && Math.abs(e.clientY - drag.startY) < 5) return;
             startDrag(e);
         }
+        moveGhost(e.clientX, e.clientY);
         if (drag.type === 'item') {
-            moveGhost(e.clientX, e.clientY);
             const target = hit(e.clientX, e.clientY, '.shortcut-item');
             if (target) shiftItemTo(drag.el, target, dropSide(target, e.clientX, e.clientY));
         } else {
@@ -1158,27 +1165,33 @@ function bindShortcutsDragOnce() {
         if (type === 'item') {
             const target = hit(e.clientX, e.clientY, '.shortcut-item');
             if (target) shiftItemTo(el, target, dropSide(target, e.clientX, e.clientY));
-            if (ghost) {
-                const landing = el.getBoundingClientRect();
-                ghost.style.transition = 'left .18s cubic-bezier(.22,.61,.36,1), top .18s cubic-bezier(.22,.61,.36,1), transform .18s cubic-bezier(.22,.61,.36,1)';
-                ghost.style.left = landing.left + 'px';
-                ghost.style.top = landing.top + 'px';
-                ghost.style.transform = 'scale(1)';
-                const done = () => {
-                    if (ghost.parentElement) ghost.remove();
-                    el.classList.remove('dragging');
-                };
-                ghost.addEventListener('transitionend', done, { once: true });
-                setTimeout(done, 240);
-            } else {
-                el.classList.remove('dragging');
-            }
             saveSiteLayout();
         } else {
             const target = hit(e.clientX, e.clientY, '.shortcut-group');
             if (target) shiftGroupTo(el, target, dropSide(target, e.clientX, e.clientY));
-            el.classList.remove('dragging');
             saveNewGroupOrder();
+        }
+
+        // 影子滑到落位再消失（图标和分组走同一套）
+        if (ghost) {
+            const landing = el.getBoundingClientRect();
+            ghost.style.transition = 'left .18s cubic-bezier(.22,.61,.36,1), top .18s cubic-bezier(.22,.61,.36,1), transform .18s cubic-bezier(.22,.61,.36,1)';
+            ghost.style.left = landing.left + 'px';
+            ghost.style.top = landing.top + 'px';
+            ghost.style.transform = 'scale(1)';
+            // transitionend 和兜底定时器都可能触发，只认第一次
+            let settled = false;
+            const done = () => {
+                if (settled) return;
+                settled = true;
+                if (ghost.parentElement) ghost.remove();
+                // 240ms 内又拖起同一个元素时不能摘掉它的 dragging，否则占位变回不透明
+                if (!drag || drag.el !== el) el.classList.remove('dragging');
+            };
+            ghost.addEventListener('transitionend', done, { once: true });
+            setTimeout(done, 240);
+        } else {
+            el.classList.remove('dragging');
         }
 
         container.classList.remove('sorting');
@@ -1205,12 +1218,19 @@ function bindShortcutsDragOnce() {
         if (e.button !== 0) return;
         suppressClick = false;
         const item = e.target.closest('.shortcut-item');
-        const group = e.target.closest('.shortcut-group');
-        if (item) {
-            drag = { type: 'item', el: item, startX: e.clientX, startY: e.clientY, moved: false, ghost: null, grabX: 0, grabY: 0 };
-        } else if (group) {
-            drag = { type: 'group', el: group, startX: e.clientX, startY: e.clientY, moved: false, ghost: null, grabX: 0, grabY: 0 };
-        }
+        const group = item ? null : e.target.closest('.shortcut-group');
+        const target = item || group;
+        if (!target) return;
+        drag = {
+            type: item ? 'item' : 'group',
+            el: target,
+            startX: e.clientX,
+            startY: e.clientY,
+            moved: false,
+            ghost: null,
+            grabX: 0,
+            grabY: 0
+        };
     });
 
     document.addEventListener('pointermove', onMove);
@@ -1274,9 +1294,7 @@ function bindShortcutsDragOnce() {
     // 保存新的分组顺序
     async function saveNewGroupOrder() {
         try {
-            const groupsContainer = document.querySelector('.shortcuts');
-            const groupIds = Array.from(groupsContainer.children).map(group => group.dataset.groupId);
-
+            const groupIds = Array.from(container.children).map(group => group.dataset.groupId);
             const data = readStartpageData();
             data.groups = groupIds.map(id => data.groups.find(g => g.id === id)).filter(Boolean);
             writeStartpageData(data);
@@ -1411,11 +1429,16 @@ function hasCustomIcon(site) {
     return !!(site && site.icon && (site.icon.startsWith('http') || site.icon.startsWith('data:')));
 }
 
+// 图标缓存在扩展里才存在（本地预览没有），统一从这里取
+function iconCacheRef() {
+    return (typeof iconCache !== 'undefined' && iconCache) ? iconCache : null;
+}
+
 function resolveIconSrc(site, host, iconApi) {
     if (hasCustomIcon(site)) {
         return site.icon;
     }
-    const cache = (typeof iconCache !== 'undefined' && iconCache) ? iconCache : null;
+    const cache = iconCacheRef();
     const cached = cache ? cache.get(host) : null;
     // 有本地图就用本地的；没有就每次都填图标源地址、每次重新试一遍。
     // 试不出来也没关系 —— 格子里的字母早就垫着了，图什么时候回来什么时候盖上去。
@@ -1430,12 +1453,12 @@ function resolveIconSrc(site, host, iconApi) {
 // 现在源拿不到图就退回字母图标，不再去问任何别的源。
 function getIconApiCandidates() {
     const current = getIconApiUrl();
+    const cache = iconCacheRef();
 
     // 不在扩展可访问名单里的源直接跳过：fetch 必然被拦，试了也是白试，还刷一屏报错。
     //（<img> 本身照样能显示，只是这类图存不进本地抽屉。）
-    if (typeof iconCache !== 'undefined' && iconCache) {
-        const allowed = iconCache.isUrlAllowed(current.replace('{domain}', 'example.com'));
-        if (allowed === false) return [];
+    if (cache && cache.isUrlAllowed(current.replace('{domain}', 'example.com')) === false) {
+        return [];
     }
 
     return [current];
@@ -1451,7 +1474,7 @@ function getIconApiCandidates() {
 const ICON_CACHE_LOAD_TIMEOUT = 300;
 
 function loadIconCache() {
-    if (typeof iconCache === 'undefined' || !iconCache) return Promise.resolve(false);
+    if (!iconCacheRef()) return Promise.resolve(false);
 
     let timer = null;
     const timeout = new Promise(resolve => {
@@ -1487,7 +1510,8 @@ function indexIconHosts(container) {
 // 把刚拿到的图标塞进对应的格子。可能有多个格子（首页 + 管理面板）用同一个域名。
 // 注意 <img> 加载失败时只是被藏起来、没被删掉 —— 所以这里能直接换 src 换回来。
 function applyCachedIcon(host, blobUrl, container) {
-    let nodes = iconHostIndex.get(container) && iconHostIndex.get(container).get(host);
+    const index = iconHostIndex.get(container);
+    let nodes = index ? index.get(host) : null;
     if (!nodes) {
         // 索引里没有（动态插入的节点等）就走一次兜底查询
         try {
@@ -1509,7 +1533,7 @@ function applyCachedIcon(host, blobUrl, container) {
 // 渲染完之后，把本地还没存的图标悄悄抓回来。
 // 抓到一张就只换那一张 <img>，不整页重渲染 —— 用户看不到任何闪动。
 function warmIconCache(hosts, container) {
-    if (typeof iconCache === 'undefined' || !iconCache || !container) return;
+    if (!iconCacheRef() || !container) return;
     const unique = [...new Set((hosts || []).filter(Boolean))];
     if (!unique.length) return;
     // 候选源按优先级排好交给缓存层；末尾把「当前源」的标识一起带上，缓存层据此判断
@@ -1522,6 +1546,20 @@ function warmIconCache(hosts, container) {
 // 图标源也算进签名 —— 换了源，即使站点数据没变，也要按新源重算图标地址。
 const groupSignatures = new Map();
 
+// 站点图标的三个派生值：域名、图片地址、「用户自定义图标」标记。
+// 起始页和管理面板两处渲染都要这三样，抽出来免得规则各写一份漂移。
+// hostSink 传进来就把「该去图标源抓」的域名收进去（自定义图标的站不抓）。
+function iconMeta(site, iconApi, hostSink) {
+    const host = siteHostname(site.url);
+    const custom = hasCustomIcon(site);
+    if (!custom && hostSink) hostSink.push(host);
+    return {
+        host: host,
+        src: resolveIconSrc(site, host, iconApi),
+        customAttr: custom ? ' data-icon-custom="1"' : ''
+    };
+}
+
 function buildGroupElement(group, iconApi, iconHosts) {
     const wrap = document.createElement('div');
     wrap.innerHTML = `
@@ -1529,16 +1567,11 @@ function buildGroupElement(group, iconApi, iconHosts) {
             <h3 class="group-title">${escapeHtml(group.name)}</h3>
             <div class="shortcut-items">
                 ${(group.sites || []).map(site => {
-                    const host = siteHostname(site.url);
-                    // 自己填了图标的站不交给图标源，否则抓回来的图会把它覆盖掉
-                    if (!hasCustomIcon(site)) iconHosts.push(host);
-                    const src = resolveIconSrc(site, host, iconApi);
-                    // 标记自定义图标：抓到同域名的图时，applyCachedIcon 要跳过它
-                    const customAttr = hasCustomIcon(site) ? ' data-icon-custom="1"' : '';
+                    const icon = iconMeta(site, iconApi, iconHosts);
                     return `
                     <a href="${escapeHtml(site.url)}" class="shortcut-item" draggable="false" target="_blank" data-site-id="${escapeHtml(site.id)}">
                         <div class="shortcut-icon">
-                            <img src="${escapeHtml(src)}" alt="${escapeHtml(site.name)} icon" class="site-icon" draggable="false" data-site-name="${escapeHtml(site.name)}" data-icon-host="${escapeHtml(host)}"${customAttr}>
+                            <img src="${escapeHtml(icon.src)}" alt="${escapeHtml(site.name)} icon" class="site-icon" draggable="false" data-site-name="${escapeHtml(site.name)}" data-icon-host="${escapeHtml(icon.host)}"${icon.customAttr}>
                         </div>
                         <span class="shortcut-name">${escapeHtml(site.name)}</span>
                     </a>`;
@@ -1651,11 +1684,9 @@ function applyWallpaperValue(wallpaper) {
     probe.src = wallpaper;
 }
 
-// 应用壁纸
-async function applyWallpaper() {
+// 应用壁纸（纯同步读，没有异步操作）
+function applyWallpaper() {
     try {
-        // 壁纸已独立成 startpage-wallpaper 键：这里既不解析分组数据，
-        // 也不再需要任何回写 —— 开新标签页的壁纸处理现在是「纯读 + 0 次写盘」
         applyWallpaperValue(readWallpaperStore().current);
     } catch (error) {
         console.error('Apply wallpaper error:', error);
@@ -1744,27 +1775,11 @@ function initManageDropdown() {
     });
 }
 
-// 处理下拉菜单项点击
+// 处理下拉菜单项点击：菜单项的 data-action 正好就是面板类型
+const DROPDOWN_PANELS = ['groups', 'wallpaper', 'search-engines', 'config', 'settings'];
+
 function handleDropdownAction(action) {
-    switch (action) {
-        case 'groups':
-            showPopup('groups');
-            break;
-        case 'wallpaper':
-            showPopup('wallpaper');
-            break;
-        case 'search-engines':
-            showPopup('search-engines');
-            break;
-        case 'config':
-            showPopup('config');
-            break;
-        case 'settings':
-            showPopup('settings');
-            break;
-        default:
-            break;
-    }
+    if (DROPDOWN_PANELS.includes(action)) showPopup(action);
 }
 
 // 显示弹出界面
@@ -2215,16 +2230,12 @@ async function initPopupGroupsManagement(popupContent) {
                 </div>
                 <div class="popup-sites-list">
                     ${group.sites && group.sites.length > 0 ? group.sites.map(site => {
-                        const host = siteHostname(site.url);
-                        // 自己填了图标的站不交给图标源，否则抓回来的图会把它覆盖掉
-                        if (!hasCustomIcon(site)) iconHosts.push(host);
-                        const src = resolveIconSrc(site, host, iconApi);
-                        const customAttr = hasCustomIcon(site) ? ' data-icon-custom="1"' : '';
+                        const icon = iconMeta(site, iconApi, iconHosts);
                         return `
                         <div class="popup-site-item">
                             <div class="popup-site-info">
                                 <div class="popup-site-icon">
-                                    <img src="${escapeHtml(src)}" alt="${escapeHtml(site.name)} icon" class="popup-site-icon-img" data-site-name="${escapeHtml(site.name)}" data-icon-host="${escapeHtml(host)}"${customAttr}>
+                                    <img src="${escapeHtml(icon.src)}" alt="${escapeHtml(site.name)} icon" class="popup-site-icon-img" data-site-name="${escapeHtml(site.name)}" data-icon-host="${escapeHtml(icon.host)}"${icon.customAttr}>
                                 </div>
                                 <div class="popup-site-details">
                                     <div class="popup-site-name">${escapeHtml(site.name)}</div>
@@ -2840,7 +2851,7 @@ async function initPopupSettingsManagement(popupContent) {
     }
 
     // 图标缓存：提示当前图标源能不能被缓存，并给出清空入口
-    const iconCacheApi = (typeof iconCache !== 'undefined' && iconCache) ? iconCache : null;
+    const iconCacheApi = iconCacheRef();
     const cacheHint = popupContent.querySelector('#icon-cache-hint');
     const cacheStatus = popupContent.querySelector('#icon-cache-status');
 
