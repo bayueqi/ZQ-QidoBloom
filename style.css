@@ -358,6 +358,29 @@ body {
     box-shadow: 0 6px 20px rgba(220, 38, 38, 0.2);
 }
 
+/* 配置同步面板：区块标题 + 按钮横排 */
+.settings-management .section-title {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #000;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+}
+
+.settings-management .divider-block {
+    border-top: 1px solid rgba(0, 0, 0, 0.08);
+    padding-top: 12px;
+}
+
+.settings-management .btn-row {
+    display: flex;
+    gap: 8px;
+}
+
+.settings-management .btn-row .btn {
+    flex: 1;
+}
+
 /* 响应式调整 */
 @media (max-width: 768px) {
     .popup-content {

@@ -106,27 +106,10 @@ class SearchEnginesManager {
         this.engines = [];
     }
 
-    // 加载数据
+    // 加载数据：直接复用 loadSearchEngines()（已带解析缓存），
+    // 这里只做一份浅拷贝，避免后续 push/filter 污染共享的缓存数组。
     async loadData() {
-        try {
-            const localData = localStorage.getItem('searchEngines');
-            if (localData) {
-                try {
-                    this.engines = JSON.parse(localData);
-                } catch (error) {
-                    console.error('Failed to parse saved engines:', error);
-                    this.engines = [...DEFAULT_SEARCH_ENGINES];
-                    this.saveData();
-                }
-            } else {
-                this.engines = [...DEFAULT_SEARCH_ENGINES];
-                this.saveData();
-            }
-        } catch (error) {
-            console.error('Load engines error:', error);
-            this.engines = [...DEFAULT_SEARCH_ENGINES];
-            this.saveData();
-        }
+        this.engines = [...(await loadSearchEngines())];
     }
 
     // 保存数据
@@ -419,62 +402,77 @@ const DEFAULT_SEARCH_ENGINES = [
 // 获取搜索引擎URL
 async function getSearchUrl(query, engineId) {
     const engines = await loadSearchEngines();
-    const engine = engines.find(e => e.id === engineId);
+    const engine = engines.find(e => e.id === engineId) || engines[0];
     if (engine) {
         return engine.url.replace('{q}', encodeURIComponent(query));
     }
     return `https://www.google.com/search?q=${encodeURIComponent(query)}`;
 }
 
-// 导出配置
+// 组装一份完整导出配置（分组 + 引擎 + 壁纸 + 引擎/图标源设置）。
+// 导出成文件、上传到 GitHub 同步都用这一份，避免两处逻辑漂移。
+async function buildExportConfig() {
+    const config = {
+        version: '1.0',
+        exportTime: new Date().toISOString(),
+        data: {
+            groups: [],
+            searchEngines: [],
+            uploadedWallpapers: []
+        }
+    };
+
+    // 获取分组数据
+    const groupsData = await loadShortcutsData();
+    config.data.groups = groupsData.groups || [];
+
+    // 获取搜索引擎数据
+    config.data.searchEngines = await loadSearchEngines();
+
+    // 获取壁纸数据（只导出 URL 壁纸；base64 上传图太大，不适合塞进配置文件）
+    const wallpaperStore = readWallpaperStore();
+    config.data.uploadedWallpapers = wallpaperStore.uploaded.filter(w =>
+        typeof w === 'string' && (w.startsWith('http://') || w.startsWith('https://'))
+    );
+    // 正在用的那张壁纸也记下来，导入后直接切回同一张。base64 上传图不导出（同上，体积）
+    if (typeof wallpaperStore.current === 'string' && wallpaperStore.current.indexOf('data:') !== 0) {
+        config.data.currentWallpaper = wallpaperStore.current;
+    }
+
+    // 当前选中的搜索引擎，导入后继续用它；没手动选过（用默认第一个）也要记下来，
+    // 否则换台机器拉取后「当前引擎」会保持对方本地的旧值，而不是回到云端的第一个。
+    try {
+        const savedEngine = localStorage.getItem('startpage-engine');
+        if (savedEngine) {
+            config.data.currentEngine = savedEngine;
+        } else if (Array.isArray(config.data.searchEngines) && config.data.searchEngines.length) {
+            config.data.currentEngine = config.data.searchEngines[0].id;
+        }
+    } catch (error) { /* 读不到就按第一个引擎 */ }
+
+    // 获取图标来源 API 设置
+    const savedSettings = localStorage.getItem('startpage-faviconapi');
+    if (savedSettings) {
+        try {
+            const settings = JSON.parse(savedSettings);
+            if (settings.iconApiUrl) {
+                config.data.iconApiUrl = settings.iconApiUrl;
+            }
+        } catch (error) {
+            console.error('Failed to parse saved settings:', error);
+        }
+    }
+
+    // 注意：token 绝不能写进配置/Gist。GitHub 的 Secret Scanning 一旦发现 gist 里
+    // 出现 ghp_... 这串 token，会自动吊销它（表现为「token 突然没了」）。
+
+    return config;
+}
+
+// 导出配置到本地 JSON 文件
 async function exportConfig() {
     try {
-        const config = {
-            version: '1.0',
-            exportTime: new Date().toISOString(),
-            data: {
-                groups: [],
-                searchEngines: [],
-                uploadedWallpapers: []
-            }
-        };
-
-        // 获取分组数据
-        const groupsData = await loadShortcutsData();
-        config.data.groups = groupsData.groups || [];
-
-        // 获取搜索引擎数据
-        const engines = await loadSearchEngines();
-        config.data.searchEngines = engines;
-
-        // 获取壁纸数据（只导出 URL 壁纸；base64 上传图太大，不适合塞进配置文件）
-        const wallpaperStore = readWallpaperStore();
-        config.data.uploadedWallpapers = wallpaperStore.uploaded.filter(w =>
-            typeof w === 'string' && (w.startsWith('http://') || w.startsWith('https://'))
-        );
-        // 正在用的那张壁纸也记下来，导入后直接切回同一张。base64 上传图不导出（同上，体积）
-        if (typeof wallpaperStore.current === 'string' && wallpaperStore.current.indexOf('data:') !== 0) {
-            config.data.currentWallpaper = wallpaperStore.current;
-        }
-
-        // 当前选中的搜索引擎，导入后继续用它
-        try {
-            const savedEngine = localStorage.getItem('startpage-engine');
-            if (savedEngine) config.data.currentEngine = savedEngine;
-        } catch (error) { /* 读不到就按第一个引擎 */ }
-
-        // 获取图标来源 API 设置
-        const savedSettings = localStorage.getItem('startpage-faviconapi');
-        if (savedSettings) {
-            try {
-                const settings = JSON.parse(savedSettings);
-                if (settings.iconApiUrl) {
-                    config.data.iconApiUrl = settings.iconApiUrl;
-                }
-            } catch (error) {
-                console.error('Failed to parse saved settings:', error);
-            }
-        }
+        const config = await buildExportConfig();
 
         // 创建下载链接
         const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
@@ -513,11 +511,10 @@ function showMessage(text, type = 'success') {
         right: 164px;
         padding: 10px 15px;
         border-radius: 6px;
-        color: ${type === 'error' ? 'rgba(255, 0, 0, 0.8)' : 'rgba(0, 0, 0, 0.8)'};
+        color: rgba(0, 0, 0, 0.8);
         font-weight: 400;
         font-size: 14px;
         z-index: 10000;
-        animation: slideInRight 0.3s ease-out;
         background: rgba(255, 255, 255, 0.6);
         backdrop-filter: blur(10px);
         -webkit-backdrop-filter: blur(10px);
@@ -527,10 +524,7 @@ function showMessage(text, type = 'success') {
     document.body.appendChild(message);
 
     // 3秒后自动移除
-    setTimeout(() => {
-        message.style.animation = 'slideOutRight 0.3s ease-in forwards';
-        setTimeout(() => message.remove(), 300);
-    }, 3000);
+    setTimeout(() => message.remove(), 3000);
 }
 
 // 显示自定义确认对话框
@@ -637,12 +631,66 @@ function showConfirmDialog(title, message, onConfirm, onCancel) {
     });
 }
 
-// 导入配置
+// 把一份配置写进本地。导入文件、从 GitHub 拉取，都走这一份，避免两套覆盖逻辑漂移。
+async function applyImportedConfig(config) {
+    if (!config || !config.data) {
+        throw new Error('配置文件格式不正确');
+    }
+
+    // 导入分组数据
+    if (config.data.groups && config.data.groups.length > 0) {
+        const currentData = await loadShortcutsData();
+        writeStartpageData({ ...currentData, groups: config.data.groups });
+    }
+
+    // 导入搜索引擎数据
+    if (config.data.searchEngines && config.data.searchEngines.length > 0) {
+        localStorage.setItem('searchEngines', JSON.stringify(config.data.searchEngines));
+    }
+
+    // 导入壁纸数据：URL 列表照旧覆盖；配置里带了「正在用的壁纸」就一并切过去
+    if (Array.isArray(config.data.uploadedWallpapers) || config.data.currentWallpaper) {
+        const wallpaperStore = readWallpaperStore();
+        const uploaded = Array.isArray(config.data.uploadedWallpapers)
+            ? config.data.uploadedWallpapers.slice()
+            : wallpaperStore.uploaded;
+        let current = wallpaperStore.current;
+        const wanted = config.data.currentWallpaper;
+        if (typeof wanted === 'string' && wanted) {
+            current = wanted;
+            // 是网址却不在列表里，补进去，否则壁纸面板里找不到它
+            if (/^https?:\/\//i.test(wanted) && !uploaded.includes(wanted)) {
+                uploaded.unshift(wanted);
+            }
+        }
+        writeWallpaperStore({ current: current, uploaded: uploaded });
+    }
+
+    // 导入后继续用配置里记的搜索引擎；那个引擎不存在就退回第一个
+    if (config.data.currentEngine) {
+        // 上面已把新列表写进 localStorage，这里读到的是导入后的结果
+        const engines = await loadSearchEngines();
+        try {
+            if (engines.some(engine => engine.id === config.data.currentEngine)) {
+                localStorage.setItem('startpage-engine', config.data.currentEngine);
+            } else {
+                localStorage.removeItem('startpage-engine');
+            }
+        } catch (error) { /* 存不进就按第一个引擎 */ }
+    }
+
+    // 导入图标来源 API 设置
+    if (config.data.iconApiUrl) {
+        localStorage.setItem('startpage-faviconapi', JSON.stringify({ iconApiUrl: config.data.iconApiUrl }));
+    }
+}
+
+// 导入配置（从本地文件）
 function importConfig() {
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = 'application/json';
-    
+
     input.onchange = async (e) => {
         const file = e.target.files[0];
         if (!file) return;
@@ -651,69 +699,17 @@ function importConfig() {
             const text = await file.text();
             const config = JSON.parse(text);
 
-            if (!config.data) {
-                throw new Error('配置文件格式不正确');
-            }
-
             showConfirmDialog('导入配置', '导入配置将覆盖当前设置，确定要继续吗？', async () => {
-                // 导入分组数据
-                if (config.data.groups && config.data.groups.length > 0) {
-                    const currentData = await loadShortcutsData();
-                    const mergedData = {
-                        ...currentData,
-                        groups: config.data.groups
-                    };
-                    writeStartpageData(mergedData);
+                try {
+                    await applyImportedConfig(config);
+                    showMessage('配置导入成功！页面将自动刷新。');
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 1000);
+                } catch (error) {
+                    console.error('Import config error:', error);
+                    showMessage('配置导入失败：' + error.message, 'error');
                 }
-
-                // 导入搜索引擎数据
-                if (config.data.searchEngines && config.data.searchEngines.length > 0) {
-                    localStorage.setItem('searchEngines', JSON.stringify(config.data.searchEngines));
-                }
-
-                // 导入壁纸数据：URL 列表照旧覆盖；配置里带了「正在用的壁纸」就一并切过去
-                if (Array.isArray(config.data.uploadedWallpapers) || config.data.currentWallpaper) {
-                    const wallpaperStore = readWallpaperStore();
-                    const uploaded = Array.isArray(config.data.uploadedWallpapers)
-                        ? config.data.uploadedWallpapers.slice()
-                        : wallpaperStore.uploaded;
-                    let current = wallpaperStore.current;
-                    const wanted = config.data.currentWallpaper;
-                    if (typeof wanted === 'string' && wanted) {
-                        current = wanted;
-                        // 是网址却不在列表里，补进去，否则壁纸面板里找不到它
-                        if (/^https?:\/\//i.test(wanted) && !uploaded.includes(wanted)) {
-                            uploaded.unshift(wanted);
-                        }
-                    }
-                    writeWallpaperStore({ current: current, uploaded: uploaded });
-                }
-
-                // 导入后继续用配置里记的搜索引擎；那个引擎不存在就退回第一个
-                if (config.data.currentEngine) {
-                    // 上面已把新列表写进 localStorage，这里读到的是导入后的结果
-                    const engines = await loadSearchEngines();
-                    try {
-                        if (engines.some(engine => engine.id === config.data.currentEngine)) {
-                            localStorage.setItem('startpage-engine', config.data.currentEngine);
-                        } else {
-                            localStorage.removeItem('startpage-engine');
-                        }
-                    } catch (error) { /* 存不进就按第一个引擎 */ }
-                }
-
-                // 导入图标来源 API 设置
-                if (config.data.iconApiUrl) {
-                    const settings = {
-                        iconApiUrl: config.data.iconApiUrl
-                    };
-                    localStorage.setItem('startpage-faviconapi', JSON.stringify(settings));
-                }
-
-                showMessage('配置导入成功！页面将自动刷新。');
-                setTimeout(() => {
-                    window.location.reload();
-                }, 1000);
             });
         } catch (error) {
             console.error('Import config error:', error);
@@ -724,23 +720,200 @@ function importConfig() {
     input.click();
 }
 
+// ============================================================
+// GitHub 同步：用私有 Gist 存配置，跨设备拉取
+// ------------------------------------------------------------
+// 存储 startpage-github-sync = { token }。
+// token 明文存在 localStorage（扩展私有源，别的网页读不到），只自己用可接受。
+// ============================================================
+const GITHUB_SYNC_KEY = 'startpage-github-sync';
+const GITHUB_GIST_FILE = 'QidoBloom-config.json';
+const GITHUB_API = 'https://api.github.com';
+
+function readGithubSync() {
+    try {
+        const raw = localStorage.getItem(GITHUB_SYNC_KEY);
+        if (!raw) return { token: '' };
+        const parsed = JSON.parse(raw);
+        return { token: typeof parsed.token === 'string' ? parsed.token : '' };
+    } catch (error) {
+        return { token: '' };
+    }
+}
+
+function writeGithubSync(settings) {
+    try {
+        localStorage.setItem(GITHUB_SYNC_KEY, JSON.stringify(settings));
+        return true;
+    } catch (error) {
+        return false;
+    }
+}
+
+// 统一带 token 的 GitHub 请求，15 秒超时
+async function githubRequest(method, path, body) {
+    const headers = {
+        'Accept': 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28'
+    };
+    if (body !== undefined) headers['Content-Type'] = 'application/json';
+    const settings = readGithubSync();
+    if (settings.token) headers['Authorization'] = 'Bearer ' + settings.token;
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15000);
+    try {
+        const res = await fetch(GITHUB_API + path, {
+            method: method,
+            headers: headers,
+            body: body === undefined ? undefined : JSON.stringify(body),
+            signal: controller.signal
+        });
+        if (!res.ok) {
+            let detail = '';
+            try {
+                const err = await res.json();
+                detail = err && err.message ? '：' + err.message : '';
+            } catch (error) { /* 拿不到 body 就用状态码 */ }
+            throw new Error('GitHub ' + res.status + detail);
+        }
+        return res.status === 204 ? null : res.json();
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+// 用 token 列出自己的 Gist，找到存配置的那个（没有则返回 null）
+async function findConfigGistId() {
+    const gists = await githubRequest('GET', '/gists?per_page=100');
+    if (!Array.isArray(gists)) return null;
+    const match = gists.find(g => g.files && g.files[GITHUB_GIST_FILE]);
+    return match ? match.id : null;
+}
+
+// 把本地配置上传到 Gist；云端已有配置 Gist 就覆盖，没有才新建。Gist ID 后台自动管，不暴露给前端。
+async function githubUpload() {
+    const settings = readGithubSync();
+    if (!settings.token) throw new Error('请先填写 GitHub Token');
+    const content = JSON.stringify(await buildExportConfig(), null, 2);
+
+    let gistId = await findConfigGistId();
+    if (gistId) {
+        await githubRequest('PATCH', '/gists/' + encodeURIComponent(gistId), {
+            files: { [GITHUB_GIST_FILE]: { content: content } }
+        });
+    } else {
+        const created = await githubRequest('POST', '/gists', {
+            description: '琪窦初开 配置同步',
+            public: false,
+            files: { [GITHUB_GIST_FILE]: { content: content } }
+        });
+        gistId = created.id;
+    }
+    writeGithubSync({ token: settings.token });
+    return gistId;
+}
+
+// 从 Gist 读回配置（不应用）。Gist 靠 token 自动定位，不用手动填 id。
+async function fetchRemoteConfig() {
+    const settings = readGithubSync();
+    if (!settings.token) throw new Error('请先填写 GitHub Token');
+    const gistId = await findConfigGistId();
+    if (!gistId) throw new Error('云端还没有配置，请先点一次「上传」');
+    const gist = await githubRequest('GET', '/gists/' + encodeURIComponent(gistId));
+    const file = gist.files && gist.files[GITHUB_GIST_FILE];
+    if (!file || typeof file.content !== 'string') {
+        throw new Error('Gist 里没有配置文件');
+    }
+    return JSON.parse(file.content);
+}
+
+// 拉取并应用到本地
+async function githubDownload() {
+    await applyImportedConfig(await fetchRemoteConfig());
+}
+
+// 同步设置面板
+function initPopupSyncManagement(popupContent) {
+    const settings = readGithubSync();
+    const tokenInput = popupContent.querySelector('#github-token');
+    const saveBtn = popupContent.querySelector('#github-save');
+    const uploadBtn = popupContent.querySelector('#github-upload');
+    const downloadBtn = popupContent.querySelector('#github-download');
+    const hint = popupContent.querySelector('#github-hint');
+
+    tokenInput.value = settings.token;
+
+    // 点「保存」才写盘，不再输入一个字存一次
+    function persist() {
+        writeGithubSync({ token: tokenInput.value.trim() });
+    }
+    saveBtn.addEventListener('click', () => {
+        persist();
+        hint.textContent = 'Token 已保存';
+        hint.style.color = 'rgba(0,0,0,0.7)';
+    });
+
+    function setBusy(busy) {
+        uploadBtn.disabled = busy;
+        downloadBtn.disabled = busy;
+    }
+
+    uploadBtn.addEventListener('click', async () => {
+        persist();
+        setBusy(true);
+        try {
+            await githubUpload();
+            hint.textContent = '已同步到 GitHub';
+            hint.style.color = 'rgba(0,0,0,0.7)';
+            showMessage('已同步到 GitHub');
+        } catch (error) {
+            hint.textContent = '上传失败：' + error.message;
+            hint.style.color = 'rgba(0,0,0,0.7)';
+            showMessage('上传失败：' + error.message, 'error');
+        } finally {
+            setBusy(false);
+        }
+    });
+
+    downloadBtn.addEventListener('click', async () => {
+        persist();
+        setBusy(true);
+        try {
+            await githubDownload();
+            hint.textContent = '已从 GitHub 拉取并应用';
+            hint.style.color = 'rgba(0,0,0,0.7)';
+            applyWallpaper();
+            await initNewSearch();
+            await renderShortcuts();
+            showMessage('已从 GitHub 拉取配置');
+        } catch (error) {
+            hint.textContent = '下载失败：' + error.message;
+            hint.style.color = 'rgba(0,0,0,0.7)';
+            showMessage('下载失败：' + error.message, 'error');
+        } finally {
+            setBusy(false);
+        }
+    });
+}
+
 // 加载搜索引擎数据。搜索结果页、导出配置会反复读，所以按「原始字符串」缓存：
 // 管理面板保存时直接写 localStorage，字符串变了缓存自动失效。
 let enginesRawCache;
-let enginesDataCache = DEFAULT_SEARCH_ENGINES;
+let enginesDataCache = [...DEFAULT_SEARCH_ENGINES];
 
 async function loadSearchEngines() {
     try {
         const localData = localStorage.getItem('searchEngines');
         if (enginesRawCache === localData) return enginesDataCache;
-        let engines = localData ? JSON.parse(localData) : DEFAULT_SEARCH_ENGINES;
-        if (!Array.isArray(engines) || !engines.length) engines = DEFAULT_SEARCH_ENGINES;
+        let engines = localData ? JSON.parse(localData) : [...DEFAULT_SEARCH_ENGINES];
+        if (!Array.isArray(engines) || !engines.length) engines = [...DEFAULT_SEARCH_ENGINES];
         enginesRawCache = localData;
         enginesDataCache = engines;
         return engines;
     } catch (error) {
         console.error('Load search engines error:', error);
-        return DEFAULT_SEARCH_ENGINES;
+        return [...DEFAULT_SEARCH_ENGINES];
     }
 }
 
@@ -1591,11 +1764,8 @@ function handleDropdownAction(action) {
         case 'search-engines':
             showPopup('search-engines');
             break;
-        case 'export-config':
-            exportConfig();
-            break;
-        case 'import-config':
-            importConfig();
+        case 'config':
+            showPopup('config');
             break;
         case 'settings':
             showPopup('settings');
@@ -1875,10 +2045,46 @@ function showPopup(type) {
                         <div class="form-group">
                             <button id="save-settings" class="btn btn-primary">保存设置</button>
                         </div>
-                        <div class="form-group">
+                        <div class="form-group divider-block">
                             <label>本地图标缓存</label>
                             <div id="icon-cache-status" style="color: #666; font-size: 0.85rem; margin-bottom: 8px;"></div>
-                            <button id="clear-icon-cache" class="btn btn-secondary">清空图标缓存</button>
+                            <button id="clear-icon-cache" class="btn btn-secondary">清空缓存</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            break;
+        case 'config':
+            content = `
+                <div class="popup-header">
+                    <h3>配置同步</h3>
+                    <button class="popup-close">&times;</button>
+                </div>
+                <div class="popup-body">
+                    <div class="settings-management">
+                        <div class="form-group">
+                            <div class="section-title">本地配置</div>
+                            <div class="btn-row">
+                                <button id="local-export" class="btn btn-primary">导出配置</button>
+                                <button id="local-import" class="btn btn-secondary">导入配置</button>
+                            </div>
+                        </div>
+                        <div class="form-group divider-block">
+                            <div class="section-title">云端配置</div>
+                            <label for="github-token" style="color: #666;">GitHub Token <a href="https://github.com/settings/tokens/new?scopes=gist&description=QidoBloom" target="_blank" style="color: #666; text-decoration: none;" title="生成 token">↗</a></label>
+                            <div style="display: flex; gap: 8px;">
+                                <input type="password" id="github-token" class="form-control" placeholder="ghp_..." style="flex: 1;">
+                                <button id="github-save" class="btn btn-primary">保存</button>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <div class="btn-row">
+                                <button id="github-upload" class="btn btn-primary">上传配置</button>
+                                <button id="github-download" class="btn btn-secondary">下载配置</button>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <small id="github-hint" style="color: #666; font-size: 0.8rem;"></small>
                         </div>
                     </div>
                 </div>
@@ -1924,14 +2130,11 @@ function showPopup(type) {
     } else if (type === 'settings') {
         // 初始化设置功能
         initPopupSettingsManagement(popupContent);
-    }
-    
-    // 点击外部关闭（容器是常驻的，只绑一次；原来每打开一次面板就多加一个监听器）
-    if (!popupContainer.dataset.outsideBound) {
-        popupContainer.dataset.outsideBound = '1';
-        popupContainer.addEventListener('click', function(e) {
-            if (e.target === popupContainer) closePopup();
-        });
+    } else if (type === 'config') {
+        // 配置：本地导出/导入 + 云端同步
+        popupContent.querySelector('#local-export').addEventListener('click', exportConfig);
+        popupContent.querySelector('#local-import').addEventListener('click', importConfig);
+        initPopupSyncManagement(popupContent);
     }
 }
 
@@ -1951,9 +2154,35 @@ function closePopup() {
     }, 300);
 }
 
+// 弹出面板里的模态框显示/隐藏（分组管理、搜索引擎管理共用同一套）
+function bindModalOutside(popupContent, modalId) {
+    const modal = popupContent.querySelector('#' + modalId);
+    if (!modal || modal.dataset.outsideBound) return;
+    modal.dataset.outsideBound = '1';
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) hideModalIn(popupContent, modalId);
+    });
+}
 
+function showModalIn(popupContent, modalId) {
+    bindModalOutside(popupContent, modalId);
+    const modal = popupContent.querySelector('#' + modalId);
+    if (!modal) return;
+    modal.style.display = 'flex';
+    modal.offsetHeight; // 强制重绘，动画从初始态开始
+    modal.classList.add('modal-show');
+}
 
-
+function hideModalIn(popupContent, modalId) {
+    const modal = popupContent.querySelector('#' + modalId);
+    if (!modal) return;
+    modal.classList.remove('modal-show');
+    modal.classList.add('modal-hide');
+    setTimeout(() => {
+        modal.style.display = 'none';
+        modal.classList.remove('modal-hide');
+    }, 400);
+}
 
 // 初始化管理下拉菜单
 initManageDropdown();
@@ -2118,35 +2347,9 @@ async function initPopupGroupsManagement(popupContent) {
         }
     }
 
-    // 显示模态框
-    function showModal(modalId) {
-        const modal = popupContent.querySelector(`#${modalId}`);
-        if (!modal) return;
-        // 点击外部关闭只绑一次：原来每次打开都在 100ms 后再加一个监听器，越点越多
-        if (!modal.dataset.outsideBound) {
-            modal.dataset.outsideBound = '1';
-            modal.addEventListener('click', (e) => {
-                if (e.target === modal) hideModal(modalId);
-            });
-        }
-        modal.style.display = 'flex';
-        modal.offsetHeight; // 强制重绘，动画才会从初始态开始
-        modal.classList.add('modal-show');
-    }
-
-    // 隐藏模态框
-    function hideModal(modalId) {
-        const modal = popupContent.querySelector(`#${modalId}`);
-        if (modal) {
-            modal.classList.remove('modal-show');
-            modal.classList.add('modal-hide');
-            // 等待动画完成
-            setTimeout(() => {
-                modal.style.display = 'none';
-                modal.classList.remove('modal-hide');
-            }, 400);
-        }
-    }
+    // 模态框显示/隐藏走全局 showModalIn / hideModalIn（和搜索引擎管理共用）
+    function showModal(modalId) { showModalIn(popupContent, modalId); }
+    function hideModal(modalId) { hideModalIn(popupContent, modalId); }
 
     // 绑定添加分组按钮
     const addGroupButton = popupContent.querySelector('#popup-add-group-button');
@@ -2338,33 +2541,9 @@ async function initPopupSearchEnginesManagement(popupContent) {
         });
     }
 
-    // 显示模态框
-    function showModal(modalId) {
-        const modal = popupContent.querySelector(`#${modalId}`);
-        if (!modal) return;
-        if (!modal.dataset.outsideBound) {
-            modal.dataset.outsideBound = '1';
-            modal.addEventListener('click', (e) => {
-                if (e.target === modal) hideModal(modalId);
-            });
-        }
-        modal.style.display = 'flex';
-        modal.offsetHeight;
-        modal.classList.add('modal-show');
-    }
-
-    // 隐藏模态框
-    function hideModal(modalId) {
-        const modal = popupContent.querySelector(`#${modalId}`);
-        if (modal) {
-            modal.classList.remove('modal-show');
-            modal.classList.add('modal-hide');
-            setTimeout(() => {
-                modal.style.display = 'none';
-                modal.classList.remove('modal-hide');
-            }, 400);
-        }
-    }
+    // 模态框显示/隐藏走全局 showModalIn / hideModalIn（和分组管理共用）
+    function showModal(modalId) { showModalIn(popupContent, modalId); }
+    function hideModal(modalId) { hideModalIn(popupContent, modalId); }
 
     // 绑定添加搜索引擎按钮
     const addEngineBtn = popupContent.querySelector('.add-engine-btn');
@@ -2689,7 +2868,7 @@ async function initPopupSettingsManagement(popupContent) {
             cacheHint.textContent = '';
         } else {
             cacheHint.textContent = '这个图标源不在扩展的可访问名单里：图标照常显示，但不会被缓存。';
-            cacheHint.style.color = '#c62828';
+            cacheHint.style.color = '#666';
         }
     }
 
