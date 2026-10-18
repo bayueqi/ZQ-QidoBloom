@@ -21,7 +21,7 @@
     const STORE_NAME = 'icons';
     const TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 天。同源也会过期重抓一次，跟得上网站换 logo；
                                              // 但抓不到时旧图留着兜底，不是一过期就丢掉
-    const MAX_ICON_BYTES = 512 * 1024;       // 单张上限，防止把错误页整页存进来
+    const MAX_ICON_BYTES = 512 * 1024;       // 超过就缩到 64×64 再存；解不出图说明是错误页，丢掉
     const MAX_CONCURRENT = 6;                // 浏览器对同一域名的并发上限也就是 6 左右
 
     const memUrls = Object.create(null);   // host -> blob: 地址，渲染时同步查这张表
@@ -151,6 +151,46 @@
     // 真正去把图标抓回来。任何一步不对就抛错，由调用方静默吞掉。
     // 必须带超时：挂住不回的请求会一直占着并发槽（6 个），后面本来能秒回的图标跟着排队。
     const FETCH_TIMEOUT_MS = 5000;
+    const ICON_SIZE = 64;   // 缩放后的边长，图标显示用不到更大
+
+    // 超过体积上限的图：可能是错误页伪装的，也可能是真高清大图。
+    // 解码一次就能分清——画得出来就是真图，缩到 64×64 存；画不出来说明不是图，丢掉。
+    function shrinkToIcon(blob) {
+        return new Promise(function (resolve, reject) {
+            const url = URL.createObjectURL(blob);
+            const img = new Image();
+            img.onload = function () {
+                try {
+                    const w = img.naturalWidth || img.width;
+                    const h = img.naturalHeight || img.height;
+                    if (!w || !h) throw new Error('尺寸为 0');
+                    const canvas = document.createElement('canvas');
+                    canvas.width = ICON_SIZE;
+                    canvas.height = ICON_SIZE;
+                    const ctx = canvas.getContext('2d');
+                    if (!ctx) throw new Error('拿不到 canvas');
+                    // 保持宽高比，居中画在透明底上
+                    const scale = Math.min(ICON_SIZE / w, ICON_SIZE / h);
+                    const dw = Math.max(1, Math.round(w * scale));
+                    const dh = Math.max(1, Math.round(h * scale));
+                    ctx.drawImage(img, Math.round((ICON_SIZE - dw) / 2), Math.round((ICON_SIZE - dh) / 2), dw, dh);
+                    canvas.toBlob(function (out) {
+                        URL.revokeObjectURL(url);
+                        if (out && out.size) resolve(out);
+                        else reject(new Error('缩放失败'));
+                    }, 'image/png');
+                } catch (error) {
+                    URL.revokeObjectURL(url);
+                    reject(error);
+                }
+            };
+            img.onerror = function () {
+                URL.revokeObjectURL(url);
+                reject(new Error('不是图片'));
+            };
+            img.src = url;
+        });
+    }
 
     function fetchOne(url) {
         let timer = null;
@@ -170,7 +210,7 @@
             return response.blob();
         }).then(function (blob) {
             if (!blob || !blob.size) throw new Error('空内容');
-            if (blob.size > MAX_ICON_BYTES) throw new Error('太大：' + blob.size);
+            if (blob.size > MAX_ICON_BYTES) return shrinkToIcon(blob);
             return blob;
         }).finally(function () {
             if (timer !== null) clearTimeout(timer);
