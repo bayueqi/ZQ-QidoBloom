@@ -3,12 +3,8 @@
 // 弹窗和起始页同属 chrome-extension://<id> 同一源，共用同一个 localStorage，
 // 所以这里直接读写 startpage-data，不需要 background 中转。
 
-const STORAGE_KEY = 'startpage-data';
-const KEY_GROUPS_MIRROR = 'groups-mirror';
-const KEY_PENDING = 'pending-sites';
 const KEY_FAVICON_API = 'startpage-faviconapi';
 const DEFAULT_FAVICON_API = 'https://toolb.cn/favicon/{domain}';
-const INBOX_GROUP_NAME = '待分组';
 
 const el = {
     subtitle: document.getElementById('pp-subtitle'),
@@ -29,54 +25,7 @@ const el = {
 let currentTab = null;
 let data = { groups: [] };
 
-// ---------- 基础工具 ----------
-
-function hasStorageBridge() {
-    return typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local;
-}
-
-function bridgeGet(key, fallback) {
-    return new Promise(resolve => {
-        if (!hasStorageBridge()) return resolve(fallback);
-        try {
-            chrome.storage.local.get(key, res => {
-                const value = res ? res[key] : undefined;
-                resolve(value === undefined ? fallback : value);
-            });
-        } catch (error) {
-            resolve(fallback);
-        }
-    });
-}
-
-function bridgeSet(obj) {
-    return new Promise(resolve => {
-        if (!hasStorageBridge()) return resolve();
-        try {
-            chrome.storage.local.set(obj, () => resolve());
-        } catch (error) {
-            resolve();
-        }
-    });
-}
-
-function normalizeUrl(url) {
-    try {
-        const parsed = new URL(url);
-        parsed.hash = '';
-        return parsed.href.replace(/\/$/, '');
-    } catch (error) {
-        return String(url || '');
-    }
-}
-
-function hostOf(url) {
-    try {
-        return new URL(url).hostname.replace(/^www\./, '');
-    } catch (error) {
-        return url || '';
-    }
-}
+// ---------- 图标地址 ----------
 
 function iconUrlFor(url) {
     let template = DEFAULT_FAVICON_API;
@@ -90,72 +39,9 @@ function iconUrlFor(url) {
         console.error('读取图标 API 设置失败:', error);
     }
     if (template.includes('{domain}')) {
-        return template.replace('{domain}', hostOf(url));
+        return template.replace('{domain}', QDB.hostOf(url));
     }
     return template;
-}
-
-// ---------- 数据读写 ----------
-
-function loadData() {
-    try {
-        const saved = localStorage.getItem(STORAGE_KEY);
-        if (!saved) return { groups: [] };
-        const parsed = JSON.parse(saved);
-        if (!Array.isArray(parsed.groups)) parsed.groups = [];
-        return parsed;
-    } catch (error) {
-        console.error('读取起始页数据失败:', error);
-        return { groups: [] };
-    }
-}
-
-function saveData() {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-}
-
-function syncGroupsMirror() {
-    return bridgeSet({
-        [KEY_GROUPS_MIRROR]: (data.groups || []).map(group => ({ id: group.id, name: group.name }))
-    });
-}
-
-// 把右键菜单攒下的待归类网站合并进 startpage-data
-async function drainPendingSites() {
-    const pending = await bridgeGet(KEY_PENDING, []);
-    if (!Array.isArray(pending) || !pending.length) return 0;
-
-    let added = 0;
-    pending.forEach((item, index) => {
-        if (!item || !item.url) return;
-
-        let group = item.groupId ? data.groups.find(g => g.id === item.groupId) : null;
-        if (!group) {
-            group = data.groups.find(g => g.name === INBOX_GROUP_NAME);
-            if (!group) {
-                group = { id: `${Date.now()}-${index}`, name: INBOX_GROUP_NAME, sites: [] };
-                data.groups.push(group);
-            }
-        }
-        if (!Array.isArray(group.sites)) group.sites = [];
-
-        const target = normalizeUrl(item.url);
-        if (group.sites.some(site => normalizeUrl(site.url) === target)) return;
-
-        group.sites.push({
-            id: `${group.id}-${Date.now()}-${index}`,
-            name: item.name || target,
-            url: item.url
-        });
-        added++;
-    });
-
-    if (added > 0) {
-        saveData();
-        await syncGroupsMirror();
-    }
-    await bridgeSet({ [KEY_PENDING]: [] });
-    return added;
 }
 
 // ---------- 界面 ----------
@@ -252,7 +138,7 @@ function getCurrentTab() {
             const tab = (tabs && tabs[0]) || {};
             const url = tab.url || '';
             resolve({
-                title: (tab.title || '').trim() || hostOf(url) || '未命名页面',
+                title: (tab.title || '').trim() || QDB.hostOf(url) || '未命名页面',
                 url,
                 supported: /^https?:\/\//i.test(url)
             });
@@ -275,11 +161,11 @@ function handleSave() {
         return;
     }
 
-    const name = el.name.value.trim() || hostOf(currentTab.url) || '未命名网站';
+    const name = el.name.value.trim() || QDB.hostOf(currentTab.url) || '未命名网站';
     if (!Array.isArray(group.sites)) group.sites = [];
 
-    const target = normalizeUrl(currentTab.url);
-    if (group.sites.some(site => normalizeUrl(site.url) === target)) {
+    const target = QDB.normalizeUrl(currentTab.url);
+    if (group.sites.some(site => QDB.normalizeUrl(site.url) === target)) {
         showAlert(`「${group.name}」里已经有这个网站了。`, 'warn');
         return;
     }
@@ -291,14 +177,14 @@ function handleSave() {
     });
 
     try {
-        saveData();
+        QDB.writeData(data);
     } catch (error) {
         console.error('保存失败:', error);
         showAlert('保存失败，可能是本地存储空间已满。', 'error');
         return;
     }
 
-    syncGroupsMirror().then(() => {
+    QDB.syncGroupsMirror(data.groups).then(() => {
         setTimeout(() => window.close(), 260);
     });
     el.save.disabled = true;
@@ -320,14 +206,14 @@ function handleCreateGroup() {
     const id = Date.now().toString();
     data.groups.push({ id, name, sites: [] });
     try {
-        saveData();
+        QDB.writeData(data);
     } catch (error) {
         console.error('新建分组失败:', error);
         showAlert('新建分组失败。', 'error');
         return;
     }
 
-    syncGroupsMirror();
+    QDB.syncGroupsMirror(data.groups);
     el.newGroupName.value = '';
     el.newGroupBox.hidden = true;
     el.toggleNewGroup.textContent = '新建分组';
@@ -345,9 +231,11 @@ function toggleNewGroup() {
 // ---------- 启动 ----------
 
 async function init() {
-    data = loadData();
+    // 先结算右键菜单攒下的队列，再取数据：队列写入可能已经改过 localStorage，
+    // 反过来先 read 会拿到旧对象，后面 save 会把队列结果覆盖掉。
+    const syncedCount = await QDB.drainPendingSites();
+    data = QDB.readData();
 
-    const syncedCount = await drainPendingSites();
     currentTab = await getCurrentTab();
 
     // 顺序要紧：renderGroups 会按「有没有分组」开关保存按钮，

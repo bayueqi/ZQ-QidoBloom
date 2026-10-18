@@ -108,21 +108,31 @@
         return Object.keys(memUrls).length;
     }
 
-    // src 记下「这张图是哪个源抓的」，下次开新标签页靠它判断要不要拿当前源重抓一遍
-    function persist(host, blob, src) {
-        return openDb().then(function (db) {
-            if (!db) return false;
-            return new Promise(function (resolve) {
-                try {
-                    const tx = db.transaction(STORE_NAME, 'readwrite');
-                    tx.objectStore(STORE_NAME).put({ host: host, blob: blob, at: Date.now(), src: src || '' });
-                    tx.oncomplete = function () { resolve(true); };
-                    tx.onerror = function () { resolve(false); };
-                } catch (error) {
-                    resolve(false);
-                }
-            });
+    // src 记下「这张图是哪个源抓的」，下次开新标签页靠它判断要不要拿当前源重抓一遍。
+    // 攒批写：首屏一次抓十几个图标，每个单开一个 IndexedDB 事务太碎；200ms 内的合一个事务。
+    const pendingWrites = new Map(); // host -> row
+    let flushTimer = null;
+
+    function flushWrites() {
+        flushTimer = null;
+        if (!pendingWrites.size) return;
+        const rows = [];
+        pendingWrites.forEach(function (row) { rows.push(row); });
+        pendingWrites.clear();
+        openDb().then(function (db) {
+            if (!db) return;
+            try {
+                const tx = db.transaction(STORE_NAME, 'readwrite');
+                const store = tx.objectStore(STORE_NAME);
+                rows.forEach(function (row) { store.put(row); });
+            } catch (error) { /* 存不进就算了，下次开标签页还会再抓 */ }
         });
+    }
+
+    function persist(host, blob, src) {
+        pendingWrites.set(host, { host: host, blob: blob, at: Date.now(), src: src || '' });
+        if (flushTimer === null) flushTimer = setTimeout(flushWrites, 200);
+        return Promise.resolve(true);
     }
 
     /**
@@ -240,6 +250,8 @@
 
     // 清空抽屉（设置面板的按钮用）
     function clearAll() {
+        if (flushTimer !== null) { clearTimeout(flushTimer); flushTimer = null; }
+        pendingWrites.clear();
         Object.keys(memUrls).forEach(function (host) {
             try { URL.revokeObjectURL(memUrls[host]); } catch (error) { /* ignore */ }
             delete memUrls[host];
@@ -313,4 +325,9 @@
         isUrlAllowed: isUrlAllowed,
         TTL_DAYS: Math.round(TTL_MS / 86400000)
     };
+
+    // 关标签页时把还没冲的写尽快落地（IndexedDB 事务发起后浏览器一般会跑完）
+    if (typeof window !== 'undefined' && window.addEventListener) {
+        window.addEventListener('pagehide', flushWrites);
+    }
 })(window);

@@ -6,43 +6,15 @@ class PopupDataManager {
         };
     }
 
-    // 从localStorage加载数据
+    // 加载 / 保存统一走 QDB（shared.js），和起始页共用同一份读写，
+    // 避免「起始页一套、管理面板一套」改一处忘一处。
     async loadData() {
-        try {
-            const savedData = localStorage.getItem('startpage-data');
-            if (savedData) {
-                try {
-                    this.data = JSON.parse(savedData);
-                } catch (error) {
-                    console.error('Failed to parse saved data:', error);
-                    this.initDefaultData();
-                }
-            } else {
-                this.initDefaultData();
-            }
-        } catch (error) {
-            console.error('Load data error:', error);
-            this.initDefaultData();
-        }
-    }
-
-    // 初始化默认数据
-    // 注意：壁纸不在这里 —— 它已拆到独立的 startpage-wallpaper 键，
-    // 见 readWallpaperStore / writeWallpaperStore。
-    initDefaultData() {
-        this.data = {
-            groups: []
-        };
-        this.saveData();
+        this.data = QDB.readData();
     }
 
     // 保存数据
     async saveData() {
-        try {
-            localStorage.setItem('startpage-data', JSON.stringify(this.data));
-        } catch (error) {
-            console.error('Save data error:', error);
-        }
+        QDB.writeData(this.data);
     }
 
     // 获取所有分组
@@ -298,11 +270,7 @@ function getIconApiUrl() {
 
 // 安全取域名：站点 URL 可能是手填的、不带协议的，new URL 会直接抛错并中断整页渲染
 function siteHostname(url) {
-    try {
-        return new URL(url).hostname;
-    } catch (error) {
-        return String(url || '').replace(/^https?:\/\//i, '').split(/[/?#]/)[0];
-    }
+    return QDB.siteHostname(url);
 }
 
 // 站点名 / 网址是直接拼进 innerHTML 的：名字里带 < > " 会把整块结构顶坏，
@@ -480,9 +448,20 @@ async function exportConfig() {
         config.data.searchEngines = engines;
 
         // 获取壁纸数据（只导出 URL 壁纸；base64 上传图太大，不适合塞进配置文件）
-        config.data.uploadedWallpapers = readWallpaperStore().uploaded.filter(w =>
+        const wallpaperStore = readWallpaperStore();
+        config.data.uploadedWallpapers = wallpaperStore.uploaded.filter(w =>
             typeof w === 'string' && (w.startsWith('http://') || w.startsWith('https://'))
         );
+        // 正在用的那张壁纸也记下来，导入后直接切回同一张。base64 上传图不导出（同上，体积）
+        if (typeof wallpaperStore.current === 'string' && wallpaperStore.current.indexOf('data:') !== 0) {
+            config.data.currentWallpaper = wallpaperStore.current;
+        }
+
+        // 当前选中的搜索引擎，导入后继续用它
+        try {
+            const savedEngine = localStorage.getItem('startpage-engine');
+            if (savedEngine) config.data.currentEngine = savedEngine;
+        } catch (error) { /* 读不到就按第一个引擎 */ }
 
         // 获取图标来源 API 设置
         const savedSettings = localStorage.getItem('startpage-faviconapi');
@@ -692,13 +671,35 @@ function importConfig() {
                     localStorage.setItem('searchEngines', JSON.stringify(config.data.searchEngines));
                 }
 
-                // 导入壁纸数据（只覆盖 URL 壁纸列表，当前壁纸与本地已上传的图保持不动）
-                if (Array.isArray(config.data.uploadedWallpapers)) {
+                // 导入壁纸数据：URL 列表照旧覆盖；配置里带了「正在用的壁纸」就一并切过去
+                if (Array.isArray(config.data.uploadedWallpapers) || config.data.currentWallpaper) {
                     const wallpaperStore = readWallpaperStore();
-                    writeWallpaperStore({
-                        current: wallpaperStore.current,
-                        uploaded: config.data.uploadedWallpapers
-                    });
+                    const uploaded = Array.isArray(config.data.uploadedWallpapers)
+                        ? config.data.uploadedWallpapers.slice()
+                        : wallpaperStore.uploaded;
+                    let current = wallpaperStore.current;
+                    const wanted = config.data.currentWallpaper;
+                    if (typeof wanted === 'string' && wanted) {
+                        current = wanted;
+                        // 是网址却不在列表里，补进去，否则壁纸面板里找不到它
+                        if (/^https?:\/\//i.test(wanted) && !uploaded.includes(wanted)) {
+                            uploaded.unshift(wanted);
+                        }
+                    }
+                    writeWallpaperStore({ current: current, uploaded: uploaded });
+                }
+
+                // 导入后继续用配置里记的搜索引擎；那个引擎不存在就退回第一个
+                if (config.data.currentEngine) {
+                    // 上面已把新列表写进 localStorage，这里读到的是导入后的结果
+                    const engines = await loadSearchEngines();
+                    try {
+                        if (engines.some(engine => engine.id === config.data.currentEngine)) {
+                            localStorage.setItem('startpage-engine', config.data.currentEngine);
+                        } else {
+                            localStorage.removeItem('startpage-engine');
+                        }
+                    } catch (error) { /* 存不进就按第一个引擎 */ }
                 }
 
                 // 导入图标来源 API 设置
@@ -764,6 +765,7 @@ async function initNewSearch() {
         currentEngineId = engine.id;
         currentEngine.textContent = engine.name;
         searchEngineSelector.classList.remove('open');
+        try { localStorage.setItem('startpage-engine', engine.id); } catch (error) { /* 存不进就算了 */ }
     }
 
     // 清空并重新生成引擎选项
@@ -776,7 +778,10 @@ async function initNewSearch() {
         engineDropdown.appendChild(option);
     });
 
-    const initial = engines.find(engine => engine.name === currentEngine.textContent) || engines[0];
+    // 记住上次用的引擎；没有记录 / 那个引擎已被删掉时退回第一个
+    let savedEngineId = '';
+    try { savedEngineId = localStorage.getItem('startpage-engine') || ''; } catch (error) { /* ignore */ }
+    const initial = engines.find(engine => engine.id === savedEngineId) || engines[0];
     if (initial) selectEngine(initial);
 
     // 引擎选择器点击事件
@@ -1111,45 +1116,14 @@ function bindShortcutsDragOnce() {
     }
 }
 
-// ---------------- 起始页数据读写（带解析缓存） ----------------
-// startpage-data 里同时装着分组、当前壁纸和「已上传壁纸」（上传的是 base64，可能好几 MB），
-// 而 renderShortcuts / 拖拽排序这些热路径会反复读它。缓存以「原始字符串」为凭据：
-// 任何一处直接写 localStorage 都会让字符串变掉，缓存自动失效，
-// 所以不需要在各处手工清缓存，也不会读到脏数据。
-let startpageRawCache;
-let startpageDataCache;
-let startpageCached = false;
-
+// ---------------- 起始页数据读写 ----------------
+// 实现统一在 shared.js（起始页与扩展弹窗共用同一份），这里保留原函数名给本文件内部调用。
 function readStartpageData() {
-    const raw = localStorage.getItem('startpage-data');
-    if (startpageCached && startpageRawCache === raw) {
-        return startpageDataCache;
-    }
-
-    let data;
-    try {
-        data = raw ? JSON.parse(raw) : getDefaultShortcutsData();
-    } catch (error) {
-        console.error('Failed to parse saved data:', error);
-        data = getDefaultShortcutsData();
-    }
-    if (!data || typeof data !== 'object' || Array.isArray(data)) {
-        data = getDefaultShortcutsData();
-    }
-    if (!Array.isArray(data.groups)) data.groups = [];
-
-    startpageRawCache = raw;
-    startpageDataCache = data;
-    startpageCached = true;
-    return data;
+    return QDB.readData();
 }
 
 function writeStartpageData(data) {
-    const raw = JSON.stringify(data);
-    localStorage.setItem('startpage-data', raw);
-    startpageRawCache = raw;
-    startpageDataCache = data;
-    startpageCached = true;
+    QDB.writeData(data);
 }
 
 /* ------------------------------------------------------------------
@@ -1251,13 +1225,6 @@ async function loadShortcutsData() {
     return readStartpageData();
 }
 
-// 获取默认快捷方式数据
-function getDefaultShortcutsData() {
-    return {
-        groups: []
-    };
-}
-
 // ---- 图标缓存接入 ----
 // 渲染时（同步）能拿到的优先级：站点自带图标 > 本地抽屉里存的图 > 图标 API 直链（老办法）
 //
@@ -1309,8 +1276,7 @@ function getIconApiCandidates() {
     return [current];
 }
 
-// 把抽屉读进内存。读不出来就当作空抽屉，页面照常跑。
-// 把图标抽屉读进内存。读不出来/读太慢都当空抽屉，页面照常跑。
+// 把抽屉读进内存。读不出来/读太慢都当空抽屉，页面照常跑。
 //
 // 这里必须带超时：图标缓存只是「加速」，绝不能反过来把整页拖住。
 // 启动流程是 await loadIconCache() → renderShortcuts()，IndexedDB 只要不回调
@@ -1336,14 +1302,34 @@ function loadIconCache() {
     });
 }
 
+// host → 该容器里对应的 <img> 列表。渲染后建一次，图标回填时直接查表，
+// 不用每回来一张图就把整个文档扫一遍。
+const iconHostIndex = new WeakMap();
+
+function indexIconHosts(container) {
+    if (!container) return;
+    const map = new Map();
+    container.querySelectorAll(ICON_SELECTOR).forEach(img => {
+        const host = img.dataset.iconHost;
+        if (!host) return;
+        let list = map.get(host);
+        if (!list) { list = []; map.set(host, list); }
+        list.push(img);
+    });
+    iconHostIndex.set(container, map);
+}
+
 // 把刚拿到的图标塞进对应的格子。可能有多个格子（首页 + 管理面板）用同一个域名。
 // 注意 <img> 加载失败时只是被藏起来、没被删掉 —— 所以这里能直接换 src 换回来。
 function applyCachedIcon(host, blobUrl, container) {
-    let nodes;
-    try {
-        nodes = container.querySelectorAll('[data-icon-host="' + CSS.escape(host) + '"]');
-    } catch (error) {
-        return; // 域名里出现无法转义的字符就跳过这一张，不影响其他图标
+    let nodes = iconHostIndex.get(container) && iconHostIndex.get(container).get(host);
+    if (!nodes) {
+        // 索引里没有（动态插入的节点等）就走一次兜底查询
+        try {
+            nodes = container.querySelectorAll('[data-icon-host="' + CSS.escape(host) + '"]');
+        } catch (error) {
+            return; // 域名里出现无法转义的字符就跳过这一张，不影响其他图标
+        }
     }
     nodes.forEach(node => {
         if (node.tagName !== 'IMG') return;
@@ -1367,8 +1353,39 @@ function warmIconCache(hosts, container) {
     iconCache.schedule(unique, urlFors, (host, blobUrl) => applyCachedIcon(host, blobUrl, container), getIconApiUrl());
 }
 
-// 渲染快捷方式
-async function renderShortcuts() {
+// 每个分组上次渲染时的内容签名：签名没变就不重建，现有的 <img> 原样留着。
+// 图标源也算进签名 —— 换了源，即使站点数据没变，也要按新源重算图标地址。
+const groupSignatures = new Map();
+
+function buildGroupElement(group, iconApi, iconHosts) {
+    const wrap = document.createElement('div');
+    wrap.innerHTML = `
+        <div class="shortcut-group" data-group-id="${escapeHtml(group.id)}">
+            <h3 class="group-title">${escapeHtml(group.name)}</h3>
+            <div class="shortcut-items">
+                ${(group.sites || []).map(site => {
+                    const host = siteHostname(site.url);
+                    // 自己填了图标的站不交给图标源，否则抓回来的图会把它覆盖掉
+                    if (!hasCustomIcon(site)) iconHosts.push(host);
+                    const src = resolveIconSrc(site, host, iconApi);
+                    // 标记自定义图标：抓到同域名的图时，applyCachedIcon 要跳过它
+                    const customAttr = hasCustomIcon(site) ? ' data-icon-custom="1"' : '';
+                    return `
+                    <a href="${escapeHtml(site.url)}" class="shortcut-item" draggable="false" target="_blank" data-site-id="${escapeHtml(site.id)}">
+                        <div class="shortcut-icon">
+                            <img src="${escapeHtml(src)}" alt="${escapeHtml(site.name)} icon" class="site-icon" draggable="false" data-site-name="${escapeHtml(site.name)}" data-icon-host="${escapeHtml(host)}"${customAttr}>
+                        </div>
+                        <span class="shortcut-name">${escapeHtml(site.name)}</span>
+                    </a>`;
+                }).join('')}
+            </div>
+        </div>`;
+    return wrap.firstElementChild;
+}
+
+// 渲染快捷方式。force = true 时全部重建（清空图标缓存后要用：内存里的 blob 地址已失效，
+// 留着旧 <img> 只会显示破图）；平时只重建内容变了的那个分组。
+async function renderShortcuts(force) {
     const shortcutsContainer = document.querySelector('.shortcuts');
     if (!shortcutsContainer) return;
     try {
@@ -1376,40 +1393,64 @@ async function renderShortcuts() {
         const groups = data.groups || [];
 
         // 把分组镜像给后台，右键菜单靠它拼子项
-        qdbSyncGroupsMirror(groups);
+        QDB.syncGroupsMirror(groups);
 
         // 图标 API 只取一次（原来在 map 里每个站点都读一遍 localStorage + JSON.parse）
         const iconApi = getIconApiUrl();
         const iconHosts = [];
+        const rebuilt = [];
 
-        shortcutsContainer.innerHTML = groups.map(group => `
-            <div class="shortcut-group" data-group-id="${escapeHtml(group.id)}">
-                <h3 class="group-title">${escapeHtml(group.name)}</h3>
-                <div class="shortcut-items">
-                    ${(group.sites || []).map(site => {
-                        const host = siteHostname(site.url);
-                        // 自己填了图标的站不交给图标源，否则抓回来的图会把它覆盖掉
-                        if (!hasCustomIcon(site)) iconHosts.push(host);
-                        const src = resolveIconSrc(site, host, iconApi);
-                        // 标记自定义图标：后台抓到同域名的图时，applyCachedIcon 要跳过它
-                        const customAttr = hasCustomIcon(site) ? ' data-icon-custom="1"' : '';
-                        return `
-                        <a href="${escapeHtml(site.url)}" class="shortcut-item" draggable="false" target="_blank" data-site-id="${escapeHtml(site.id)}">
-                            <div class="shortcut-icon">
-                                <img src="${escapeHtml(src)}" alt="${escapeHtml(site.name)} icon" class="site-icon" draggable="false" data-site-name="${escapeHtml(site.name)}" data-icon-host="${escapeHtml(host)}"${customAttr}>
-                            </div>
-                            <span class="shortcut-name">${escapeHtml(site.name)}</span>
-                        </a>`;
-                    }).join('')}
-                </div>
-            </div>
-        `).join('');
+        if (force) {
+            groupSignatures.clear();
+            shortcutsContainer.textContent = '';
+        }
 
-        // 只在快捷方式区域内找图标；拖拽走容器级事件委托，这里只需确认已绑定
-        // 图标加载失败兜底：容器级捕获监听，一个就够
+        // 现有分组节点按 groupId 索引
+        const existing = new Map();
+        Array.from(shortcutsContainer.children).forEach(el => {
+            if (el.classList.contains('shortcut-group') && el.dataset.groupId) {
+                existing.set(el.dataset.groupId, el);
+            }
+        });
+
+        const wanted = new Set();
+        const ordered = [];
+
+        groups.forEach(group => {
+            const signature = iconApi + '|' + JSON.stringify(group);
+            wanted.add(group.id);
+
+            let el = existing.get(group.id);
+            if (!el || groupSignatures.get(group.id) !== signature) {
+                const fresh = buildGroupElement(group, iconApi, iconHosts);
+                if (el) el.replaceWith(fresh);
+                el = fresh;
+                rebuilt.push(fresh);
+            }
+            // 内容没变的分组走这里：节点和内部 <img> 原样保留，不重新加载图标
+
+            groupSignatures.set(group.id, signature);
+            ordered.push(el);
+        });
+
+        // 按数据顺序摆好：只移动错位的节点，不重建
+        let ref = shortcutsContainer.firstElementChild;
+        ordered.forEach(el => {
+            if (el !== ref) shortcutsContainer.insertBefore(el, ref);
+            ref = el.nextElementSibling;
+        });
+
+        // 数据里已经没有的分组，节点和签名一起清掉
+        existing.forEach((el, id) => {
+            if (wanted.has(id)) return;
+            groupSignatures.delete(id);
+            el.remove();
+        });
+
         bindIconFallback(shortcutsContainer);
-        // 先垫字母：图没回来（或永远回不来）时格子里不是空的
-        padIconFallback(shortcutsContainer);
+        // 只给新建 / 重建的分组垫字母，没变的不动
+        rebuilt.forEach(node => padIconFallback(node));
+        indexIconHosts(shortcutsContainer);
         bindShortcutsDragOnce();
         // 本地抽屉里还没有的图标，趁这会儿悄悄补上
         warmIconCache(iconHosts, shortcutsContainer);
@@ -1431,7 +1472,7 @@ function applyWallpaperValue(wallpaper) {
         return;
     }
 
-    body.style.background = `url('${wallpaper}') no-repeat center center fixed`;
+    body.style.background = `url('${cssUrl(wallpaper)}') no-repeat center center fixed`;
     body.style.backgroundSize = 'cover';
     body.style.backgroundColor = '#ffffff';
 
@@ -1990,6 +2031,7 @@ async function initPopupGroupsManagement(popupContent) {
         bindIconFallback(groupsContainer);
         // 先垫字母，理由同首页
         padIconFallback(groupsContainer);
+        indexIconHosts(groupsContainer);
         // 本地抽屉里还没有的图标，趁这会儿悄悄补上
         warmIconCache(iconHosts, groupsContainer);
     }
@@ -2286,21 +2328,10 @@ async function initPopupSearchEnginesManagement(popupContent) {
             btn.addEventListener('click', async () => {
                 const engineId = btn.dataset.id;
                 showConfirmDialog('删除搜索引擎', '确定要删除这个搜索引擎吗？', async () => {
-                    const currentEngineElement = document.getElementById('current-engine');
-                    const currentEngineName = currentEngineElement ? currentEngineElement.textContent : '';
-                    const engineToDelete = engines.find(e => e.id === engineId);
-                    
                     await enginesManager.deleteEngine(engineId);
                     renderEngines();
                     showMessage('搜索引擎已删除');
-                    
-                    if (engineToDelete && engineToDelete.name === currentEngineName) {
-                        const currentEngineElement = document.getElementById('current-engine');
-                        if (currentEngineElement) {
-                            currentEngineElement.textContent = '必应';
-                        }
-                    }
-                    
+                    // 删的若正是当前选中的引擎，initNewSearch 会按 id 找不到、自动回退第一个
                     initNewSearch();
                 });
             });
@@ -2680,8 +2711,8 @@ async function initPopupSettingsManagement(popupContent) {
             await iconCacheApi.clearAll();
             clearCacheButton.disabled = false;
             refreshCacheStatus();
-            // 清空后内存里的 blob 地址已经失效，重渲染一次，别让页面继续挂着旧引用
-            renderShortcuts();
+            // 清空后内存里的 blob 地址已经失效，必须整块重建，别让页面继续挂着旧引用
+            renderShortcuts(true);
             showMessage('图标缓存已清空，下次打开会重新抓取');
         });
     }
@@ -2711,135 +2742,20 @@ async function initPopupSettingsManagement(popupContent) {
 // ============================================================
 // 扩展桥接：支持「点扩展图标收藏」和「右键菜单收藏」
 // ------------------------------------------------------------
-// 起始页与弹窗（popup.html）同属 chrome-extension://<id> 同一源，直接共用同一个
-// localStorage，所以弹窗能直接读写 startpage-data。
-// 但 background service worker 里没有 localStorage，它只能往 chrome.storage.local 写，
-// 因此约定两个桥接键：
-//   - groups-mirror：分组列表镜像，供右键菜单拼出分组子项
-//   - pending-sites：待归类队列，由起始页 / 弹窗在读取时合并进 startpage-data
-// 数据仍然以 localStorage['startpage-data'] 为唯一权威来源。
+// 读写、队列合并、分组镜像都在 shared.js（起始页与弹窗共用同一份）。
+// 这里只负责启动时结算积压队列，并挂上后续同步监听。
 // ============================================================
-
-const QDB_MIRROR_KEY = 'groups-mirror';
-const QDB_PENDING_KEY = 'pending-sites';
-const QDB_INBOX_GROUP_NAME = '待分组';
-
-function qdbHasBridge() {
-    return typeof chrome !== 'undefined' && !!chrome.storage && !!chrome.storage.local;
-}
-
-function qdbBridgeGet(key) {
-    return new Promise(resolve => {
-        if (!qdbHasBridge()) return resolve(undefined);
-        try {
-            chrome.storage.local.get(key, function(result) {
-                resolve(result ? result[key] : undefined);
-            });
-        } catch (error) {
-            console.error('Bridge read error:', error);
-            resolve(undefined);
-        }
-    });
-}
-
-function qdbBridgeSet(payload) {
-    return new Promise(resolve => {
-        if (!qdbHasBridge()) return resolve(false);
-        try {
-            chrome.storage.local.set(payload, function() {
-                // 顺带把「写成功了没」告诉调用方，分组镜像靠它决定要不要记指纹
-                resolve(!chrome.runtime.lastError);
-            });
-        } catch (error) {
-            console.error('Bridge write error:', error);
-            resolve(false);
-        }
-    });
-}
-
-// 归一化 URL，用于判重（忽略锚点和结尾斜杠）
-function qdbNormalizeUrl(url) {
-    try {
-        const parsed = new URL(url);
-        parsed.hash = '';
-        return parsed.href.replace(/\/$/, '');
-    } catch (error) {
-        return String(url || '');
-    }
-}
-
-// 把分组列表镜像给后台，右键菜单靠它拼子项。
-// 内容没变就**不写盘**：这个函数每次 renderShortcuts() 都会调，
-// 而原来开一个新标签页会往 chrome.storage 写两次完全相同的分组列表
-// （renderShortcuts 一次、qdbInitBridge 一次），纯属白跑 IPC + 落盘。
-let qdbMirrorFingerprint = null;
-
-function qdbSyncGroupsMirror(groups) {
-    if (!qdbHasBridge()) return Promise.resolve();
-    const list = (Array.isArray(groups) ? groups : []).map(function(group) {
-        return { id: group.id, name: group.name };
-    });
-    const fingerprint = JSON.stringify(list);
-    if (fingerprint === qdbMirrorFingerprint) return Promise.resolve();
-
-    return qdbBridgeSet({ [QDB_MIRROR_KEY]: list }).then(function(ok) {
-        // 只在真的写成功后才记指纹；写失败就不记，下次开新标签页会自己重试
-        if (ok) qdbMirrorFingerprint = fingerprint;
-    });
-}
-
-// 把右键菜单攒下的网站合并进 startpage-data，然后清空队列
-async function qdbDrainPendingSites() {
-    if (!qdbHasBridge()) return 0;
-    const pending = await qdbBridgeGet(QDB_PENDING_KEY);
-    if (!Array.isArray(pending) || pending.length === 0) return 0;
-
-    const data = await loadShortcutsData();
-    if (!Array.isArray(data.groups)) data.groups = [];
-
-    let added = 0;
-    pending.forEach(function(item, index) {
-        if (!item || !item.url) return;
-
-        // 指定的分组可能已经被删掉了，这种情况落到「待分组」里，不丢数据
-        let group = item.groupId ? data.groups.find(g => g.id === item.groupId) : null;
-        if (!group) {
-            group = data.groups.find(g => g.name === QDB_INBOX_GROUP_NAME);
-            if (!group) {
-                group = { id: `${Date.now()}-${index}`, name: QDB_INBOX_GROUP_NAME, sites: [] };
-                data.groups.push(group);
-            }
-        }
-        if (!Array.isArray(group.sites)) group.sites = [];
-
-        const target = qdbNormalizeUrl(item.url);
-        if (group.sites.some(site => qdbNormalizeUrl(site.url) === target)) return;
-
-        group.sites.push({
-            id: `${group.id}-${Date.now()}-${index}`,
-            name: item.name || target,
-            url: item.url
-        });
-        added++;
-    });
-
-    writeStartpageData(data);
-    await qdbBridgeSet({ [QDB_PENDING_KEY]: [] });
-    return added;
-}
 
 // 初始化桥接：先结算积压的收藏，再挂上后续的同步监听
 async function qdbInitBridge() {
-    if (!qdbHasBridge()) return;
+    if (!QDB.hasBridge()) return;
 
     try {
-        const added = await qdbDrainPendingSites();
+        const added = await QDB.drainPendingSites();
         if (added > 0) {
             await renderShortcuts();
             showMessage(`已从右键菜单添加 ${added} 个网站`);
         }
-        // 队列为空时不用再同步分组镜像：renderShortcuts() 已经同步过，
-        // 而且 qdbSyncGroupsMirror() 现在内容没变就不写盘
     } catch (error) {
         console.error('Bridge init error:', error);
     }
@@ -2847,8 +2763,8 @@ async function qdbInitBridge() {
     // 后台写入待归类队列时（起始页正开着）实时同步
     try {
         chrome.storage.onChanged.addListener(async function(changes, areaName) {
-            if (areaName !== 'local' || !changes[QDB_PENDING_KEY]) return;
-            const added = await qdbDrainPendingSites();
+            if (areaName !== 'local' || !changes[QDB.PENDING_KEY]) return;
+            const added = await QDB.drainPendingSites();
             if (added > 0) {
                 await renderShortcuts();
                 showMessage(`已从右键菜单添加 ${added} 个网站`);
@@ -2861,7 +2777,7 @@ async function qdbInitBridge() {
     // 弹窗写的是同一个 localStorage，靠 storage 事件同步；
     // 写入方自己不会收到该事件，所以这里不会自激成循环
     window.addEventListener('storage', function(event) {
-        if (event.key === 'startpage-data') {
+        if (event.key === QDB.DATA_KEY) {
             renderShortcuts();
         }
     });
