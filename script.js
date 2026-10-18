@@ -403,10 +403,7 @@ const DEFAULT_SEARCH_ENGINES = [
 async function getSearchUrl(query, engineId) {
     const engines = await loadSearchEngines();
     const engine = engines.find(e => e.id === engineId) || engines[0];
-    if (engine) {
-        return engine.url.replace('{q}', encodeURIComponent(query));
-    }
-    return `https://www.google.com/search?q=${encodeURIComponent(query)}`;
+    return engine.url.replace('{q}', encodeURIComponent(query));
 }
 
 // 组装一份完整导出配置（分组 + 引擎 + 壁纸 + 引擎/图标源设置）。
@@ -423,7 +420,7 @@ async function buildExportConfig() {
     };
 
     // 获取分组数据
-    const groupsData = await loadShortcutsData();
+    const groupsData = readStartpageData();
     config.data.groups = groupsData.groups || [];
 
     // 获取搜索引擎数据
@@ -488,12 +485,12 @@ async function exportConfig() {
         showMessage('配置导出成功！');
     } catch (error) {
         console.error('Export config error:', error);
-        showMessage('配置导出失败：' + error.message, 'error');
+        showMessage('配置导出失败：' + error.message);
     }
 }
 
 // 显示自定义提示消息
-function showMessage(text, type = 'success') {
+function showMessage(text) {
     // 移除旧的消息
     const oldMessage = document.getElementById('auth-message');
     if (oldMessage) {
@@ -503,7 +500,7 @@ function showMessage(text, type = 'success') {
     // 创建新的消息元素
     const message = document.createElement('div');
     message.id = 'auth-message';
-    message.className = `message ${type}`;
+    message.className = 'message';
     message.textContent = text;
     message.style.cssText = `
         position: fixed;
@@ -639,7 +636,7 @@ async function applyImportedConfig(config) {
 
     // 导入分组数据
     if (config.data.groups && config.data.groups.length > 0) {
-        const currentData = await loadShortcutsData();
+        const currentData = readStartpageData();
         writeStartpageData({ ...currentData, groups: config.data.groups });
     }
 
@@ -708,12 +705,12 @@ function importConfig() {
                     }, 1000);
                 } catch (error) {
                     console.error('Import config error:', error);
-                    showMessage('配置导入失败：' + error.message, 'error');
+                    showMessage('配置导入失败：' + error.message);
                 }
             });
         } catch (error) {
             console.error('Import config error:', error);
-            showMessage('配置导入失败：' + error.message, 'error');
+            showMessage('配置导入失败：' + error.message);
         }
     };
 
@@ -870,7 +867,7 @@ function initPopupSyncManagement(popupContent) {
         } catch (error) {
             hint.textContent = '上传失败：' + error.message;
             hint.style.color = 'rgba(0,0,0,0.7)';
-            showMessage('上传失败：' + error.message, 'error');
+            showMessage('上传失败：' + error.message);
         } finally {
             setBusy(false);
         }
@@ -890,7 +887,7 @@ function initPopupSyncManagement(popupContent) {
         } catch (error) {
             hint.textContent = '下载失败：' + error.message;
             hint.style.color = 'rgba(0,0,0,0.7)';
-            showMessage('下载失败：' + error.message, 'error');
+            showMessage('下载失败：' + error.message);
         } finally {
             setBusy(false);
         }
@@ -1393,11 +1390,6 @@ function writeWallpaperStore(store) {
     }
 }
 
-// 从localStorage读取数据
-async function loadShortcutsData() {
-    return readStartpageData();
-}
-
 // ---- 图标缓存接入 ----
 // 渲染时（同步）能拿到的优先级：站点自带图标 > 本地抽屉里存的图 > 图标 API 直链（老办法）
 //
@@ -1562,7 +1554,7 @@ async function renderShortcuts(force) {
     const shortcutsContainer = document.querySelector('.shortcuts');
     if (!shortcutsContainer) return;
     try {
-        const data = await loadShortcutsData();
+        const data = readStartpageData();
         const groups = data.groups || [];
 
         // 把分组镜像给后台，右键菜单靠它拼子项
@@ -2776,7 +2768,7 @@ async function initPopupWallpaperManagement(popupContent) {
             if (!file) return;
             const base64Image = await wallpaperManager.handleImageUpload(file);
             if (!base64Image) {
-                showMessage('上传失败，请重试', 'error');
+                showMessage('上传失败，请重试');
                 return;
             }
             await wallpaperManager.addUploadedWallpaper(base64Image);
@@ -2912,7 +2904,7 @@ async function initPopupSettingsManagement(popupContent) {
                 // 重新渲染快捷方式以应用新的图标 API
                 renderShortcuts();
             } else {
-                showMessage('保存设置失败', 'error');
+                showMessage('保存设置失败');
             }
         });
     }
