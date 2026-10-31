@@ -403,6 +403,7 @@ const DEFAULT_SEARCH_ENGINES = [
     { id: 'bing', name: '必应', url: 'https://www.bing.com/search?q={q}' },
     { id: 'google', name: 'Google', url: 'https://www.google.com/search?q={q}' },
     { id: 'baidu', name: '百度', url: 'https://www.baidu.com/s?wd={q}' },
+    { id: 'github', name: 'GitHub', url: 'https://github.com/search?q={q}' },
 ];
 
 // 获取搜索引擎URL
@@ -2179,17 +2180,8 @@ function closePopup() {
 }
 
 // 弹出面板里的模态框显示/隐藏（分组管理、搜索引擎管理共用同一套）
-function bindModalOutside(popupContent, modalId) {
-    const modal = popupContent.querySelector('#' + modalId);
-    if (!modal || modal.dataset.outsideBound) return;
-    modal.dataset.outsideBound = '1';
-    modal.addEventListener('click', (e) => {
-        if (e.target === modal) hideModalIn(popupContent, modalId);
-    });
-}
-
+// 点周围空白不关，只认对话框自己的按钮
 function showModalIn(popupContent, modalId) {
-    bindModalOutside(popupContent, modalId);
     const modal = popupContent.querySelector('#' + modalId);
     if (!modal) return;
     modal.style.display = 'flex';
