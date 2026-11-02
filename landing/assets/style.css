@@ -1,0 +1,338 @@
+/* ---------- 基础 ---------- */
+:root {
+    --ink: #1b1b1a;
+    --ink-soft: #45423e;
+    --muted: #6f6b66;
+    --line: #e3e0d9;
+    --line-soft: #eeece7;
+    --paper: #faf9f7;
+    --code-bg: #f0eee9;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html {
+    -webkit-text-size-adjust: 100%;
+}
+
+body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    font-size: 15px;
+    line-height: 1.75;
+    -webkit-font-smoothing: antialiased;
+}
+
+.wrap {
+    width: 100%;
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 0 24px;
+}
+
+a {
+    color: inherit;
+    text-decoration: none;
+}
+
+code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.88em;
+    background: var(--code-bg);
+    padding: 1px 5px;
+    border-radius: 3px;
+}
+
+/* ---------- 顶栏 ---------- */
+.site-header {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: rgba(250, 249, 247, 0.9);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--line-soft);
+}
+
+.header-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 60px;
+}
+
+.brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+}
+
+.brand img {
+    border-radius: 6px;
+    display: block;
+}
+
+.nav {
+    display: flex;
+    gap: 22px;
+}
+
+.nav a {
+    font-size: 14px;
+    color: var(--muted);
+    transition: color 0.15s ease;
+}
+
+.nav a:hover {
+    color: var(--ink);
+}
+
+/* ---------- 首屏 ---------- */
+.intro {
+    padding: 76px 0 44px;
+}
+
+.intro h1 {
+    font-size: clamp(34px, 6vw, 52px);
+    font-weight: 600;
+    line-height: 1.08;
+    letter-spacing: -0.035em;
+}
+
+.lead {
+    margin-top: 22px;
+    font-size: 17px;
+    line-height: 1.8;
+    color: var(--ink-soft);
+    max-width: 620px;
+}
+
+.lead.sub {
+    margin-top: 10px;
+    font-size: 15px;
+    color: var(--muted);
+}
+
+.actions {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    margin-top: 32px;
+}
+
+.btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--ink);
+    color: var(--paper);
+    font-size: 14px;
+    font-weight: 500;
+    padding: 11px 22px;
+    border-radius: 5px;
+    transition: background 0.15s ease;
+}
+
+.btn:hover {
+    background: #34332f;
+}
+
+.text-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 14px;
+    color: var(--muted);
+    transition: color 0.15s ease;
+}
+
+.text-link svg {
+    transition: transform 0.15s ease;
+}
+
+.text-link:hover {
+    color: var(--ink);
+}
+
+.text-link:hover svg {
+    transform: translateX(2px);
+}
+
+/* ---------- 截图 ---------- */
+.shots {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    padding-bottom: 8px;
+}
+
+.shot {
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    overflow: hidden;
+    background: #fff;
+}
+
+.shot img {
+    display: block;
+    width: 100%;
+    height: auto;
+}
+
+/* ---------- 区块 ---------- */
+.section {
+    margin-top: 72px;
+    padding-top: 36px;
+    border-top: 1px solid var(--line);
+}
+
+.section h2 {
+    font-size: 17px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin-bottom: 8px;
+}
+
+.note {
+    font-size: 14px;
+    color: var(--muted);
+    margin: 8px 0 26px;
+}
+
+/* ---------- 功能列表 ---------- */
+.feature-list {
+    margin-top: 18px;
+}
+
+.feature-list .row {
+    display: grid;
+    grid-template-columns: 104px 1fr;
+    gap: 24px;
+    padding: 15px 0;
+    border-bottom: 1px solid var(--line-soft);
+}
+
+.feature-list .row:last-child {
+    border-bottom: none;
+}
+
+.feature-list dt {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--ink);
+}
+
+.feature-list dd {
+    font-size: 14.5px;
+    color: var(--ink-soft);
+}
+
+/* ---------- 安装步骤 ---------- */
+.steps {
+    list-style: none;
+    counter-reset: step;
+    margin-top: 4px;
+}
+
+.steps li {
+    counter-increment: step;
+    position: relative;
+    padding-left: 42px;
+    margin-bottom: 24px;
+}
+
+.steps li:last-child {
+    margin-bottom: 0;
+}
+
+.steps li::before {
+    content: counter(step);
+    position: absolute;
+    left: 0;
+    top: 2px;
+    width: 22px;
+    height: 22px;
+    border: 1px solid var(--line);
+    border-radius: 50%;
+    font-size: 12px;
+    line-height: 20px;
+    text-align: center;
+    color: var(--muted);
+}
+
+.steps h3 {
+    font-size: 14.5px;
+    font-weight: 600;
+    margin-bottom: 2px;
+}
+
+.steps p {
+    font-size: 14.5px;
+    color: var(--ink-soft);
+}
+
+.section .actions {
+    margin-top: 30px;
+}
+
+/* ---------- 页脚 ---------- */
+.site-footer {
+    margin-top: 88px;
+    border-top: 1px solid var(--line);
+}
+
+.footer-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 26px 0 44px;
+    font-size: 13px;
+    color: var(--muted);
+}
+
+.footer-inner a:hover {
+    color: var(--ink);
+}
+
+/* ---------- 移动端 ---------- */
+@media (max-width: 640px) {
+    .intro {
+        padding: 52px 0 34px;
+    }
+
+    .lead {
+        font-size: 16px;
+    }
+
+    .shots {
+        grid-template-columns: 1fr;
+    }
+
+    .section {
+        margin-top: 56px;
+        padding-top: 30px;
+    }
+
+    .feature-list .row {
+        grid-template-columns: 1fr;
+        gap: 2px;
+        padding: 14px 0;
+    }
+
+    .actions {
+        gap: 18px;
+        flex-wrap: wrap;
+    }
+
+    .nav {
+        gap: 16px;
+    }
+}
