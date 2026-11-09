@@ -1,145 +1,322 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>琪窦初开 — 浏览器新标签页扩展</title>
-    <meta name="description" content="一日之始，往往始于一张空白页。分组建卡，把常去的地方留在这页；此后打开新页，去处皆在眼前。">
-    <link rel="icon" href="assets/favicon.png" type="image/png">
-    <link rel="stylesheet" href="assets/style.css">
-</head>
-<body id="top">
+    <meta
+      name="description"
+      content="琪窦初开（QidoBloom）是 Chrome / Edge 新标签页扩展：分组收纳常用网站，位置可直接拖动，搜索框切换引擎，壁纸自选图片。"
+    />
+    <link rel="icon" href="assets/favicon.png" type="image/png" />
+    <link rel="apple-touch-icon" href="assets/icon.png" />
+    <meta property="og:title" content="琪窦初开 — 浏览器新标签页扩展" />
+    <meta property="og:description" content="把常去的地方，留在一页。" />
+    <meta property="og:image" content="assets/icon.png" />
+    <link rel="stylesheet" href="assets/style.css" />
+  </head>
+  <body>
+    <svg class="sprite" aria-hidden="true">
+      <defs>
+        <symbol id="i-grid" viewBox="0 0 24 24">
+          <rect x="3.5" y="3.5" width="7" height="7" rx="2" />
+          <rect x="13.5" y="3.5" width="7" height="7" rx="2" />
+          <rect x="3.5" y="13.5" width="7" height="7" rx="2" />
+          <rect x="13.5" y="13.5" width="7" height="7" rx="2" />
+        </symbol>
+        <symbol id="i-move" viewBox="0 0 24 24">
+          <path d="M12 3v18" />
+          <path d="M3 12h18" />
+          <path d="m8.5 7 3.5-4 3.5 4" />
+          <path d="m8.5 17 3.5 4 3.5-4" />
+          <path d="m7 8.5-4 3.5 4 3.5" />
+          <path d="m17 8.5 4 3.5-4 3.5" />
+        </symbol>
+        <symbol id="i-search" viewBox="0 0 24 24">
+          <circle cx="11" cy="11" r="6.5" />
+          <path d="m16 16 4.5 4.5" />
+        </symbol>
+        <symbol id="i-bookmark" viewBox="0 0 24 24">
+          <path d="M6 4.5h12v16l-6-4.5-6 4.5v-16Z" />
+        </symbol>
+        <symbol id="i-inbox" viewBox="0 0 24 24">
+          <path d="M3.5 12.5h4l1.5 3h6l1.5-3h4" />
+          <path d="M5 5.5h14l2 7v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-5l2-7Z" />
+        </symbol>
+        <symbol id="i-image" viewBox="0 0 24 24">
+          <rect x="3.5" y="4.5" width="17" height="15" rx="2.5" />
+          <circle cx="9" cy="10" r="1.6" />
+          <path d="m4.5 17 5-4.5 4 3.5 2.5-2 3.5 3" />
+        </symbol>
+        <symbol id="i-db" viewBox="0 0 24 24">
+          <ellipse cx="12" cy="6" rx="7.5" ry="2.8" />
+          <path d="M4.5 6v12c0 1.6 3.4 2.8 7.5 2.8s7.5-1.2 7.5-2.8V6" />
+          <path d="M4.5 12c0 1.6 3.4 2.8 7.5 2.8s7.5-1.2 7.5-2.8" />
+        </symbol>
+        <symbol id="i-export" viewBox="0 0 24 24">
+          <path d="M12 15V4" />
+          <path d="m7.5 8 4.5-4 4.5 4" />
+          <path d="M4.5 14.5v4a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-4" />
+        </symbol>
+        <symbol id="i-arrow" viewBox="0 0 24 24">
+          <path d="M5 12h13" />
+          <path d="m12.5 6 6 6-6 6" />
+        </symbol>
+        <symbol id="i-download" viewBox="0 0 24 24">
+          <path d="M12 3v11" />
+          <path d="m7.5 10 4.5 4.5L16.5 10" />
+          <path d="M4.5 19.5h15" />
+        </symbol>
+        <symbol id="i-github" viewBox="0 0 16 16">
+          <path
+            d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"
+          />
+        </symbol>
+      </defs>
+    </svg>
 
-<header class="site-header">
-    <div class="wrap header-inner">
+    <header class="nav" id="nav">
+      <div class="nav-inner">
         <a class="brand" href="#top">
-            <img src="assets/icon.png" alt="" width="26" height="26">
-            <span>琪窦初开</span>
+          <img src="assets/mark.png" width="24" height="24" alt="" />
+          <span>琪窦初开</span>
         </a>
-        <nav class="nav">
-            <a href="#features">功能</a>
-            <a href="#workflow">使用</a>
-            <a href="#install">安装</a>
-            <a href="https://github.com/BAYUEQI/ZQ-QidoBloom" target="_blank" rel="noopener">GitHub</a>
+        <nav class="nav-links">
+          <a href="#features">功能</a>
+          <a href="#shots">界面</a>
+          <a href="#use">使用</a>
+          <a href="#install">安装</a>
         </nav>
-    </div>
-</header>
+        <a class="nav-github" href="https://github.com/BAYUEQI/ZQ-QidoBloom" target="_blank" rel="noreferrer">
+          <svg viewBox="0 0 16 16"><use href="#i-github" /></svg>
+          <span>GitHub</span>
+        </a>
+      </div>
+    </header>
 
-<main class="wrap">
-
-    <section class="intro">
-        <h1>琪窦初开</h1>
-        <p class="lead">一日之始，往往始于一张空白页。分组建卡，把常去的地方留在这页。此后打开新页，去处皆在眼前。</p>
-        <div class="actions">
-            <a class="btn" href="https://github.com/BAYUEQI/ZQ-QidoBloom/archive/refs/heads/main.zip">下载扩展</a>
-            <a class="text-link" href="https://github.com/BAYUEQI/ZQ-QidoBloom" target="_blank" rel="noopener">
-                在 GitHub 查看
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
+    <main id="top">
+      <section class="hero">
+        <div class="hero-copy">
+          <div class="eyebrow">
+            <span class="tag">v1.2.0</span>
+            <span>Chrome · Edge · Manifest V3</span>
+          </div>
+          <h1>把常去的地方<br />留在一页</h1>
+          <p class="lede">
+            常用网站按用途分组，位置可以拖动；搜索框切换引擎，壁纸换成自己的图片。每开一个新标签页，去处都在眼前。
+          </p>
+          <div class="hero-actions">
+            <a class="btn primary lg" href="https://github.com/BAYUEQI/ZQ-QidoBloom/archive/refs/heads/main.zip">
+              <svg viewBox="0 0 24 24"><use href="#i-download" /></svg>
+              下载扩展
             </a>
+            <a class="btn ghost lg" href="https://github.com/BAYUEQI/ZQ-QidoBloom" target="_blank" rel="noreferrer">
+              <svg class="fill" viewBox="0 0 16 16"><use href="#i-github" /></svg>
+              查看源码
+            </a>
+          </div>
+          <p class="hero-meta">解压后加载即可使用，不需要构建</p>
         </div>
-    </section>
 
-    <div class="shots">
-        <figure class="shot">
-            <img src="assets/shot-1.png" alt="起始页界面">
-        </figure>
-        <figure class="shot">
-            <img src="assets/shot-2.png" alt="起始页界面">
-        </figure>
-    </div>
-
-    <section id="features" class="section">
-        <h2>功能</h2>
-        <div class="cards">
-            <div class="card">
-                <h3>分组书签</h3>
-                <p>常用网站按用途分组，组名与组的先后顺序均可调整。</p>
+        <div class="browser" aria-hidden="true">
+          <div class="br-bar">
+            <span class="br-dots"><i></i><i></i><i></i></span>
+            <span class="br-tab">
+              <img src="assets/favicon.png" width="13" height="13" alt="" />
+              <span>新标签页</span>
+            </span>
+            <span class="br-plus">+</span>
+            <span class="br-omni">qidobloom://newtab</span>
+          </div>
+          <div class="br-view">
+            <div class="nt-clock">
+              <div class="nt-time">09:41</div>
+              <div class="nt-date">2026年11月9日 星期一</div>
             </div>
-            <div class="card">
-                <h3>拖拽排序</h3>
-                <p>支持组内换位与跨组移动，分组本身亦可拖动重排。</p>
+            <div class="nt-search">
+              <span class="nt-engine"><i></i>必应</span>
+              <span class="nt-placeholder">搜索</span>
+              <span class="nt-go">
+                <svg viewBox="0 0 24 24"><use href="#i-search" /></svg>
+              </span>
             </div>
-            <div class="card">
-                <h3>搜索引擎</h3>
-                <p>内置必应、Google、百度、GitHub，支持添加自定义引擎并设为默认。</p>
-            </div>
-            <div class="card">
-                <h3>快捷收藏</h3>
-                <p>通过扩展图标或页面右键菜单，将当前页面存入指定分组。</p>
-            </div>
-            <div class="card">
-                <h3>待分组</h3>
-                <p>未确定归属的网站暂存于此，扩展图标显示待归类数量。</p>
-            </div>
-            <div class="card">
-                <h3>壁纸</h3>
-                <p>内置壁纸、本地上传、图片地址三种来源，可恢复默认背景。</p>
-            </div>
-            <div class="card">
-                <h3>图标缓存</h3>
-                <p>网站图标按域名缓存在本地，离线打开照常显示。</p>
-            </div>
-            <div class="card">
-                <h3>数据备份</h3>
-                <p>导出为 JSON 文件，或同步至浏览器账号，多台设备保持一致。</p>
-            </div>
-        </div>
-    </section>
-
-    <section id="workflow" class="section">
-        <h2>使用</h2>
-        <ol class="steps">
-            <li>
-                <h3>建立分组</h3>
-                <p>进入「管理 → 分组管理」，新建分组，填写网站名称与地址。</p>
-            </li>
-            <li>
-                <h3>收藏网站</h3>
-                <p>在任意网页点击扩展图标，或使用页面右键菜单，选择目标分组。</p>
-            </li>
-            <li>
-                <h3>迁移配置</h3>
-                <p>进入「管理 → 配置同步」，导出配置文件，或同步至浏览器账号。</p>
-            </li>
-        </ol>
-        <p class="shortcut"><code>Ctrl</code> + <code>K</code>、<code>Ctrl</code> + <code>F</code> 聚焦搜索框；面板打开时 <code>Esc</code> 关闭。</p>
-    </section>
-
-    <section id="install" class="section">
-        <h2>安装</h2>
-        <div class="install-grid">
-            <ol class="steps">
-                <li>
-                    <h3>下载并解压</h3>
-                    <p>下载压缩包，解压到本地任意目录。</p>
-                </li>
-                <li>
-                    <h3>开启开发者模式</h3>
-                    <p>地址栏输入 <code>chrome://extensions</code> 或 <code>edge://extensions</code>，开启页面右上角的「开发者模式」。</p>
-                </li>
-                <li>
-                    <h3>加载目录</h3>
-                    <p>点击「加载已解压的扩展程序」，选择上一步解压出的目录。</p>
-                </li>
-            </ol>
-            <aside class="download-card">
-                <a class="btn" href="https://github.com/BAYUEQI/ZQ-QidoBloom/archive/refs/heads/main.zip">下载扩展</a>
-                <div class="download-meta">
-                    <span>版本 1.2.0</span>
-                    <span>Chrome / Edge / Chromium</span>
+            <div class="nt-groups">
+              <div class="nt-group">
+                <h5>常用<span>4</span></h5>
+                <div class="tiles">
+                  <div class="tile"><i style="background: #fb7299">B</i><span>哔哩哔哩</span></div>
+                  <div class="tile"><i style="background: #1772f6">知</i><span>知乎</span></div>
+                  <div class="tile"><i style="background: #24292f">G</i><span>GitHub</span></div>
+                  <div class="tile"><i style="background: #2f9e44">豆</i><span>豆瓣</span></div>
                 </div>
-            </aside>
+              </div>
+              <div class="nt-group">
+                <h5>工具<span>4</span></h5>
+                <div class="tiles">
+                  <div class="tile"><i style="background: #e8590c">邮</i><span>邮箱</span></div>
+                  <div class="tile"><i style="background: #3b82f6">盘</i><span>网盘</span></div>
+                  <div class="tile"><i style="background: #7048e8">译</i><span>翻译</span></div>
+                  <div class="tile"><i style="background: #0b7285">文</i><span>文档</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
-    </section>
+      </section>
 
-</main>
+      <section class="section" id="features">
+        <div class="section-head reveal">
+          <span class="eyebrow-text">FEATURES</span>
+          <h2>功能</h2>
+        </div>
+        <div class="grid">
+          <article class="card reveal">
+            <span class="card-ico"><svg viewBox="0 0 24 24"><use href="#i-grid" /></svg></span>
+            <h3>分组书签</h3>
+            <p>常用网站按用途分组，组名与组的先后顺序均可调整。</p>
+          </article>
+          <article class="card reveal">
+            <span class="card-ico"><svg viewBox="0 0 24 24"><use href="#i-move" /></svg></span>
+            <h3>拖拽排序</h3>
+            <p>支持组内换位与跨组移动，分组本身亦可拖动重排。</p>
+          </article>
+          <article class="card reveal">
+            <span class="card-ico"><svg viewBox="0 0 24 24"><use href="#i-search" /></svg></span>
+            <h3>搜索引擎</h3>
+            <p>内置必应、Google、百度、GitHub，支持添加自定义引擎并设为默认。</p>
+          </article>
+          <article class="card reveal">
+            <span class="card-ico"><svg viewBox="0 0 24 24"><use href="#i-bookmark" /></svg></span>
+            <h3>快捷收藏</h3>
+            <p>通过扩展图标或页面右键菜单，将当前页面存入指定分组。</p>
+          </article>
+          <article class="card reveal">
+            <span class="card-ico"><svg viewBox="0 0 24 24"><use href="#i-inbox" /></svg></span>
+            <h3>待分组</h3>
+            <p>未确定归属的网站暂存于此，扩展图标显示待归类数量。</p>
+          </article>
+          <article class="card reveal">
+            <span class="card-ico"><svg viewBox="0 0 24 24"><use href="#i-image" /></svg></span>
+            <h3>壁纸</h3>
+            <p>内置壁纸、本地上传、图片地址三种来源，可恢复默认背景。</p>
+          </article>
+          <article class="card reveal">
+            <span class="card-ico"><svg viewBox="0 0 24 24"><use href="#i-db" /></svg></span>
+            <h3>图标缓存</h3>
+            <p>网站图标按域名缓存在本地，离线打开照常显示。</p>
+          </article>
+          <article class="card reveal">
+            <span class="card-ico"><svg viewBox="0 0 24 24"><use href="#i-export" /></svg></span>
+            <h3>数据备份</h3>
+            <p>导出为 JSON 文件，或同步至浏览器账号，多台设备保持一致。</p>
+          </article>
+        </div>
+      </section>
 
-<footer class="site-footer">
-    <div class="wrap footer-inner">
-        <span>琪窦初开 QidoBloom</span>
-        <a href="https://github.com/BAYUEQI/ZQ-QidoBloom" target="_blank" rel="noopener">GitHub</a>
-    </div>
-</footer>
+      <section class="section" id="shots">
+        <div class="section-head reveal">
+          <span class="eyebrow-text">SCREENSHOTS</span>
+          <h2>界面</h2>
+          <p>时钟、日期与搜索框居中排布，网站分组位于其下，背景可换成本地图片。</p>
+        </div>
+        <div class="shots reveal">
+          <figure class="shot">
+            <img src="assets/shot-1.png" alt="起始页：纯色背景与搜索框" width="440" height="280" />
+            <figcaption>纯色背景</figcaption>
+          </figure>
+          <figure class="shot">
+            <img src="assets/shot-2.png" alt="起始页：图片壁纸与引擎切换" width="451" height="280" />
+            <figcaption>图片壁纸与引擎切换</figcaption>
+          </figure>
+        </div>
+      </section>
 
-</body>
+      <section class="section" id="use">
+        <div class="section-head reveal">
+          <span class="eyebrow-text">USAGE</span>
+          <h2>使用</h2>
+        </div>
+        <ol class="steps">
+          <li class="reveal">
+            <span class="step-no">01</span>
+            <h3>建立分组</h3>
+            <p>进入「管理 → 分组管理」，新建分组，填写网站名称与地址。</p>
+          </li>
+          <li class="reveal">
+            <span class="step-no">02</span>
+            <h3>收藏网站</h3>
+            <p>在任意网页点击扩展图标，或使用页面右键菜单，选择目标分组。</p>
+          </li>
+          <li class="reveal">
+            <span class="step-no">03</span>
+            <h3>迁移配置</h3>
+            <p>进入「管理 → 配置同步」，导出配置文件，或同步至浏览器账号。</p>
+          </li>
+        </ol>
+        <div class="strip reveal">
+          <kbd>Ctrl</kbd><kbd>K</kbd>
+          <span>、</span>
+          <kbd>Ctrl</kbd><kbd>F</kbd>
+          <span>聚焦搜索框，面板打开时</span>
+          <kbd>Esc</kbd>
+          <span>关闭。</span>
+        </div>
+      </section>
+
+      <section class="section" id="install">
+        <div class="section-head reveal">
+          <span class="eyebrow-text">INSTALL</span>
+          <h2>安装</h2>
+        </div>
+        <div class="install">
+          <ol class="steps reveal">
+            <li>
+              <span class="step-no">01</span>
+              <h3>下载并解压</h3>
+              <p>下载压缩包，解压到本地任意目录。</p>
+            </li>
+            <li>
+              <span class="step-no">02</span>
+              <h3>开启开发者模式</h3>
+              <p>地址栏输入 <code>chrome://extensions</code> 或 <code>edge://extensions</code>，开启右上角的「开发者模式」。</p>
+            </li>
+            <li>
+              <span class="step-no">03</span>
+              <h3>加载目录</h3>
+              <p>点击「加载已解压的扩展程序」，选择上一步解压出的目录。</p>
+            </li>
+          </ol>
+          <aside class="dl-card reveal">
+            <span class="dl-mark"><img src="assets/mark.png" width="38" height="38" alt="" /></span>
+            <div class="dl-name">琪窦初开</div>
+            <p class="dl-note">浏览器新标签页扩展</p>
+            <a class="btn primary block" href="https://github.com/BAYUEQI/ZQ-QidoBloom/archive/refs/heads/main.zip">
+              <svg viewBox="0 0 24 24"><use href="#i-download" /></svg>
+              下载扩展
+            </a>
+            <div class="dl-meta">
+              <span>版本 1.2.0</span>
+              <span>Chrome / Edge / Chromium</span>
+            </div>
+          </aside>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        <span class="footer-brand">
+          <img src="assets/mark.png" width="16" height="16" alt="" />
+          琪窦初开 QidoBloom
+        </span>
+        <nav class="footer-links">
+          <a href="https://github.com/BAYUEQI/ZQ-QidoBloom" target="_blank" rel="noreferrer">GitHub</a>
+          <a href="https://github.com/BAYUEQI/ZQ-QidoBloom/releases" target="_blank" rel="noreferrer">版本记录</a>
+          <a href="https://github.com/BAYUEQI/ZQ-QidoBloom/issues" target="_blank" rel="noreferrer">问题反馈</a>
+        </nav>
+      </div>
+    </footer>
+
+    <script src="assets/main.js"></script>
+  </body>
 </html>
