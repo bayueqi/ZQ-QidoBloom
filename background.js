@@ -69,7 +69,6 @@ function removeAllMenus() {
 
 async function rebuildMenus() {
     await removeAllMenus();
-
     const groups = await storageGet(KEY_GROUPS_MIRROR, []);
     const list = Array.isArray(groups) ? groups : [];
 
@@ -185,7 +184,8 @@ chrome.storage.onChanged.addListener((changes, area) => {
 
 chrome.runtime.onInstalled.addListener(() => {
     rebuildMenus();
-    updateBadge(null);
+    // 角标要按真实队列算，不能直接清零：装完/升级后队列里可能还有没归类的网站
+    storageGet(KEY_PENDING, []).then(updateBadge);
 });
 
 chrome.runtime.onStartup.addListener(() => {

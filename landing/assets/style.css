@@ -30,9 +30,9 @@ body {
 
 .wrap {
     width: 100%;
-    max-width: 760px;
+    max-width: 860px;
     margin: 0 auto;
-    padding: 0 24px;
+    padding: 0 28px;
 }
 
 a {
@@ -53,7 +53,7 @@ code {
     position: sticky;
     top: 0;
     z-index: 10;
-    background: rgba(250, 249, 247, 0.9);
+    background: rgba(250, 249, 247, 0.92);
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
     border-bottom: 1px solid var(--line-soft);
@@ -82,7 +82,7 @@ code {
 
 .nav {
     display: flex;
-    gap: 22px;
+    gap: 26px;
 }
 
 .nav a {
@@ -97,34 +97,28 @@ code {
 
 /* ---------- 首屏 ---------- */
 .intro {
-    padding: 76px 0 44px;
+    padding: 84px 0 46px;
 }
 
 .intro h1 {
-    font-size: clamp(34px, 6vw, 52px);
+    font-size: clamp(36px, 5.4vw, 56px);
     font-weight: 600;
-    line-height: 1.08;
+    line-height: 1.1;
     letter-spacing: -0.035em;
 }
 
 .lead {
     margin-top: 22px;
+    max-width: 640px;
     font-size: 17px;
-    line-height: 1.8;
+    line-height: 1.85;
     color: var(--ink-soft);
-    max-width: 620px;
-}
-
-.lead.sub {
-    margin-top: 10px;
-    font-size: 15px;
-    color: var(--muted);
 }
 
 .actions {
     display: flex;
     align-items: center;
-    gap: 24px;
+    gap: 26px;
     margin-top: 32px;
 }
 
@@ -171,7 +165,6 @@ code {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 16px;
-    padding-bottom: 8px;
 }
 
 .shot {
@@ -179,18 +172,21 @@ code {
     border-radius: 6px;
     overflow: hidden;
     background: #fff;
+    aspect-ratio: 11 / 7;
 }
 
 .shot img {
     display: block;
     width: 100%;
-    height: auto;
+    height: 100%;
+    object-fit: cover;
+    object-position: top left;
 }
 
 /* ---------- 区块 ---------- */
 .section {
-    margin-top: 72px;
-    padding-top: 36px;
+    margin-top: 78px;
+    padding-top: 34px;
     border-top: 1px solid var(--line);
 }
 
@@ -198,55 +194,48 @@ code {
     font-size: 17px;
     font-weight: 600;
     letter-spacing: -0.01em;
-    margin-bottom: 8px;
 }
 
-.note {
-    font-size: 14px;
-    color: var(--muted);
-    margin: 8px 0 26px;
-}
-
-/* ---------- 功能列表 ---------- */
-.feature-list {
-    margin-top: 18px;
-}
-
-.feature-list .row {
+/* ---------- 功能 ---------- */
+.cards {
     display: grid;
-    grid-template-columns: 104px 1fr;
-    gap: 24px;
-    padding: 15px 0;
-    border-bottom: 1px solid var(--line-soft);
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-top: 24px;
 }
 
-.feature-list .row:last-child {
-    border-bottom: none;
+.card {
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 20px 22px;
+    background: #fff;
 }
 
-.feature-list dt {
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--ink);
-}
-
-.feature-list dd {
+.card h3 {
     font-size: 14.5px;
+    font-weight: 600;
+    margin-bottom: 6px;
+}
+
+.card p {
+    font-size: 14px;
+    line-height: 1.75;
     color: var(--ink-soft);
 }
 
-/* ---------- 安装步骤 ---------- */
+/* ---------- 使用步骤 ---------- */
 .steps {
     list-style: none;
     counter-reset: step;
-    margin-top: 4px;
+    margin-top: 24px;
+    max-width: 640px;
 }
 
 .steps li {
     counter-increment: step;
     position: relative;
-    padding-left: 42px;
-    margin-bottom: 24px;
+    padding-left: 44px;
+    margin-bottom: 22px;
 }
 
 .steps li:last-child {
@@ -257,13 +246,13 @@ code {
     content: counter(step);
     position: absolute;
     left: 0;
-    top: 2px;
-    width: 22px;
-    height: 22px;
+    top: 1px;
+    width: 24px;
+    height: 24px;
     border: 1px solid var(--line);
     border-radius: 50%;
     font-size: 12px;
-    line-height: 20px;
+    line-height: 22px;
     text-align: center;
     color: var(--muted);
 }
@@ -271,7 +260,7 @@ code {
 .steps h3 {
     font-size: 14.5px;
     font-weight: 600;
-    margin-bottom: 2px;
+    margin-bottom: 3px;
 }
 
 .steps p {
@@ -279,13 +268,55 @@ code {
     color: var(--ink-soft);
 }
 
-.section .actions {
-    margin-top: 30px;
+.shortcut {
+    margin-top: 26px;
+    padding-top: 18px;
+    border-top: 1px solid var(--line-soft);
+    font-size: 14.5px;
+    color: var(--ink-soft);
+}
+
+/* ---------- 安装 ---------- */
+.install-grid {
+    display: grid;
+    grid-template-columns: 1fr 250px;
+    gap: 44px;
+    margin-top: 24px;
+}
+
+.install-grid .steps {
+    margin-top: 0;
+}
+
+.download-card {
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: #fff;
+    padding: 24px;
+    align-self: start;
+}
+
+.download-card .btn {
+    width: 100%;
+    justify-content: center;
+}
+
+.download-meta {
+    margin-top: 18px;
+    padding-top: 16px;
+    border-top: 1px solid var(--line-soft);
+    font-size: 13.5px;
+    line-height: 2;
+    color: var(--muted);
+}
+
+.download-meta span {
+    display: block;
 }
 
 /* ---------- 页脚 ---------- */
 .site-footer {
-    margin-top: 88px;
+    margin-top: 92px;
     border-top: 1px solid var(--line);
 }
 
@@ -303,9 +334,13 @@ code {
 }
 
 /* ---------- 移动端 ---------- */
-@media (max-width: 640px) {
+@media (max-width: 680px) {
+    .wrap {
+        padding: 0 20px;
+    }
+
     .intro {
-        padding: 52px 0 34px;
+        padding: 56px 0 34px;
     }
 
     .lead {
@@ -316,15 +351,19 @@ code {
         grid-template-columns: 1fr;
     }
 
-    .section {
-        margin-top: 56px;
-        padding-top: 30px;
+    .cards {
+        grid-template-columns: 1fr;
+        gap: 12px;
     }
 
-    .feature-list .row {
+    .section {
+        margin-top: 56px;
+        padding-top: 28px;
+    }
+
+    .install-grid {
         grid-template-columns: 1fr;
-        gap: 2px;
-        padding: 14px 0;
+        gap: 28px;
     }
 
     .actions {

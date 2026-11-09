@@ -467,8 +467,7 @@ async function buildExportConfig() {
         }
     }
 
-    // 注意：token 绝不能写进配置/Gist。GitHub 的 Secret Scanning 一旦发现 gist 里
-    // 出现 ghp_... 这串 token，会自动吊销它（表现为「token 突然没了」）。
+    // 配置里只放界面设置，不放任何凭据
 
     return config;
 }
@@ -576,8 +575,8 @@ function showConfirmDialog(title, message, onConfirm, onCancel) {
         transition: transform 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94), opacity 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
     `;
     content.innerHTML = `
-        <h3 style="margin: 0 0 24px 0; font-size: 1.3rem; font-weight: 600; color: #000000; text-align: center;">${title}</h3>
-        <p style="margin: 0 0 24px 0; color: #000000;">${message}</p>
+        <h3 style="margin: 0 0 24px 0; font-size: 1.3rem; font-weight: 600; color: #000000; text-align: center;">${escapeHtml(title)}</h3>
+        <p style="margin: 0 0 24px 0; color: #000000;">${escapeHtml(message)}</p>
         <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px;">
             <button id="dialog-cancel" style="
                 padding: 8px 16px;
@@ -636,20 +635,20 @@ function showConfirmDialog(title, message, onConfirm, onCancel) {
     });
 }
 
-// 把一份配置写进本地。导入文件、从 GitHub 拉取，都走这一份，避免两套覆盖逻辑漂移。
+// 把一份配置写进本地。导入文件、从浏览器账号恢复，都走这一份，避免两套覆盖逻辑漂移。
 async function applyImportedConfig(config) {
     if (!config || !config.data) {
         throw new Error('配置文件格式不正确');
     }
 
-    // 导入分组数据
-    if (config.data.groups && config.data.groups.length > 0) {
+    // 分组和引擎都是「数组就覆盖」：配置里是空列表时也要覆盖，
+    // 否则删光分组的备份导入回来，旧分组还留在页面上。
+    if (Array.isArray(config.data.groups)) {
         const currentData = readStartpageData();
         writeStartpageData({ ...currentData, groups: config.data.groups });
     }
 
-    // 导入搜索引擎数据
-    if (config.data.searchEngines && config.data.searchEngines.length > 0) {
+    if (Array.isArray(config.data.searchEngines) && config.data.searchEngines.length) {
         localStorage.setItem('searchEngines', JSON.stringify(config.data.searchEngines));
     }
 
@@ -707,7 +706,7 @@ function importConfig() {
             showConfirmDialog('导入配置', '导入配置将覆盖当前设置，确定要继续吗？', async () => {
                 try {
                     await applyImportedConfig(config);
-                    showMessage('配置导入成功！页面将自动刷新。');
+                    showMessage('配置导入成功，页面将自动刷新。');
                     setTimeout(() => {
                         window.location.reload();
                     }, 1000);
@@ -726,142 +725,131 @@ function importConfig() {
 }
 
 // ============================================================
-// GitHub 同步：用私有 Gist 存配置，跨设备拉取
+// 浏览器账号同步：配置存进 chrome.storage.sync
 // ------------------------------------------------------------
-// 存储 startpage-github-sync = { token }。
-// token 明文存在 localStorage（扩展私有源，别的网页读不到），只自己用可接受。
+// 跟着浏览器账号（Chrome 登 Google、Edge 登 Microsoft）走，换设备登录同一账号
+// 就自动带过来，不经过 GitHub，也不需要任何 token。
+// sync 单个键上限 8KB，所以把配置 JSON 按字节切片、逐片 base64 存放，
+// 读取时按 META 记的片数拼回。没登录账号时 sync 退化为本机存储，按钮照常可用，
+// 只是不会跨设备；本地导出导入不受影响。
 // ============================================================
-const GITHUB_SYNC_KEY = 'startpage-github-sync';
-const GITHUB_GIST_FILE = 'QidoBloom-config.json';
-const GITHUB_API = 'https://api.github.com';
+const CONFIG_SYNC_META = 'qbConfigMeta';
+const CONFIG_SYNC_CHUNK_PREFIX = 'qbConfig.';
+const CONFIG_SYNC_CHUNK_BYTES = 5500; // 切片原始字节；base64 后约 7.3KB，低于单键 8KB 上限
+const CONFIG_SYNC_LEGACY_KEYS = ['githubToken', 'startpage-github-sync'];
 
-function readGithubSync() {
-    try {
-        const raw = localStorage.getItem(GITHUB_SYNC_KEY);
-        if (!raw) return { token: '' };
-        const parsed = JSON.parse(raw);
-        return { token: typeof parsed.token === 'string' ? parsed.token : '' };
-    } catch (error) {
-        return { token: '' };
-    }
+function bytesToBase64(bytes) {
+    let binary = '';
+    const view = new Uint8Array(bytes);
+    for (let i = 0; i < view.length; i++) binary += String.fromCharCode(view[i]);
+    return btoa(binary);
 }
 
-function writeGithubSync(settings) {
-    try {
-        localStorage.setItem(GITHUB_SYNC_KEY, JSON.stringify(settings));
-        return true;
-    } catch (error) {
-        return false;
-    }
+function base64ToBytes(text) {
+    const binary = atob(text);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes;
 }
 
-// 统一带 token 的 GitHub 请求，15 秒超时
-async function githubRequest(method, path, body) {
-    const headers = {
-        'Accept': 'application/vnd.github+json',
-        'X-GitHub-Api-Version': '2022-11-28'
-    };
-    if (body !== undefined) headers['Content-Type'] = 'application/json';
-    const settings = readGithubSync();
-    if (settings.token) headers['Authorization'] = 'Bearer ' + settings.token;
+function hasSyncStorage() {
+    return typeof chrome !== 'undefined' && !!(chrome.storage && chrome.storage.sync);
+}
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 15000);
-    try {
-        const res = await fetch(GITHUB_API + path, {
-            method: method,
-            headers: headers,
-            body: body === undefined ? undefined : JSON.stringify(body),
-            signal: controller.signal
-        });
-        if (!res.ok) {
-            let detail = '';
-            try {
-                const err = await res.json();
-                detail = err && err.message ? '：' + err.message : '';
-            } catch (error) { /* 拿不到 body 就用状态码 */ }
-            throw new Error('GitHub ' + res.status + detail);
+// chrome.storage 的回调式接口包成 Promise，失败统一抛 Error
+function syncCall(method, arg) {
+    return new Promise((resolve, reject) => {
+        try {
+            chrome.storage.sync[method](arg, result => {
+                const error = chrome.runtime.lastError;
+                if (error) reject(new Error(error.message));
+                else resolve(result);
+            });
+        } catch (error) {
+            reject(error);
         }
-        return res.status === 204 ? null : res.json();
-    } finally {
-        clearTimeout(timer);
-    }
-}
-
-// 用 token 列出自己的 Gist，找到存配置的那个（没有则返回 null）
-async function findConfigGistId() {
-    const gists = await githubRequest('GET', '/gists?per_page=100');
-    if (!Array.isArray(gists)) return null;
-    const match = gists.find(g => g.files && g.files[GITHUB_GIST_FILE]);
-    return match ? match.id : null;
-}
-
-// 把本地配置上传到 Gist；云端已有配置 Gist 就覆盖，没有才新建。Gist ID 后台自动管，不暴露给前端。
-async function githubUpload() {
-    const settings = readGithubSync();
-    if (!settings.token) throw new Error('请先填写 GitHub Token');
-    const content = JSON.stringify(await buildExportConfig(), null, 2);
-
-    let gistId = await findConfigGistId();
-    if (gistId) {
-        await githubRequest('PATCH', '/gists/' + encodeURIComponent(gistId), {
-            files: { [GITHUB_GIST_FILE]: { content: content } }
-        });
-    } else {
-        const created = await githubRequest('POST', '/gists', {
-            description: '琪窦初开 配置同步',
-            public: false,
-            files: { [GITHUB_GIST_FILE]: { content: content } }
-        });
-        gistId = created.id;
-    }
-    return gistId;
-}
-
-// 从 Gist 读回配置（不应用）。Gist 靠 token 自动定位，不用手动填 id。
-async function fetchRemoteConfig() {
-    const settings = readGithubSync();
-    if (!settings.token) throw new Error('请先填写 GitHub Token');
-    const gistId = await findConfigGistId();
-    if (!gistId) throw new Error('云端还没有配置，请先点一次「上传」');
-    const gist = await githubRequest('GET', '/gists/' + encodeURIComponent(gistId));
-    const file = gist.files && gist.files[GITHUB_GIST_FILE];
-    if (!file || typeof file.content !== 'string') {
-        throw new Error('Gist 里没有配置文件');
-    }
-    return JSON.parse(file.content);
-}
-
-// 拉取并应用到本地
-async function githubDownload() {
-    await applyImportedConfig(await fetchRemoteConfig());
-}
-
-// 同步设置面板
-function initPopupSyncManagement(popupContent) {
-    const settings = readGithubSync();
-    const tokenInput = popupContent.querySelector('#github-token');
-    const saveBtn = popupContent.querySelector('#github-save');
-    const uploadBtn = popupContent.querySelector('#github-upload');
-    const downloadBtn = popupContent.querySelector('#github-download');
-    const hint = popupContent.querySelector('#github-hint');
-
-    tokenInput.value = settings.token;
-
-    // 点「保存」才写盘，不再输入一个字存一次
-    function persist() {
-        writeGithubSync({ token: tokenInput.value.trim() });
-    }
-
-    function setHint(text) {
-        hint.textContent = text;
-        hint.style.color = 'rgba(0,0,0,0.7)';
-    }
-
-    saveBtn.addEventListener('click', () => {
-        persist();
-        setHint('Token 已保存');
     });
+}
+
+// 把配置写进浏览器账号。先写分片和 META，再清掉上一次留下的多余分片
+async function writeConfigToSync(config) {
+    if (!hasSyncStorage()) throw new Error('当前浏览器不支持账号同步');
+
+    const bytes = new TextEncoder().encode(JSON.stringify(config));
+    const chunks = [];
+    for (let offset = 0; offset < bytes.length; offset += CONFIG_SYNC_CHUNK_BYTES) {
+        chunks.push(bytesToBase64(bytes.subarray(offset, offset + CONFIG_SYNC_CHUNK_BYTES)));
+    }
+
+    const previous = await syncCall('get', CONFIG_SYNC_META);
+    const previousMeta = previous && previous[CONFIG_SYNC_META];
+    const previousCount = previousMeta && Number(previousMeta.chunks) > 0 ? Number(previousMeta.chunks) : 0;
+
+    const items = {
+        [CONFIG_SYNC_META]: { chunks: chunks.length, bytes: bytes.length, updatedAt: Date.now() }
+    };
+    chunks.forEach((chunk, index) => {
+        items[CONFIG_SYNC_CHUNK_PREFIX + index] = chunk;
+    });
+    await syncCall('set', items);
+
+    if (previousCount > chunks.length) {
+        const stale = [];
+        for (let index = chunks.length; index < previousCount; index++) stale.push(CONFIG_SYNC_CHUNK_PREFIX + index);
+        await syncCall('remove', stale);
+    }
+    return bytes.length;
+}
+
+// 从浏览器账号读回配置（不应用）
+async function readConfigFromSync() {
+    if (!hasSyncStorage()) throw new Error('当前浏览器不支持账号同步');
+
+    const metaStore = await syncCall('get', CONFIG_SYNC_META);
+    const meta = metaStore && metaStore[CONFIG_SYNC_META];
+    const count = meta && Number(meta.chunks) > 0 ? Number(meta.chunks) : 0;
+    if (!count) throw new Error('账号里还没有配置，先点一次「同步到账号」');
+
+    const keys = [];
+    for (let index = 0; index < count; index++) keys.push(CONFIG_SYNC_CHUNK_PREFIX + index);
+    const store = await syncCall('get', keys);
+
+    const parts = [];
+    let total = 0;
+    for (const key of keys) {
+        const chunk = store[key];
+        if (typeof chunk !== 'string') throw new Error('账号里的配置不完整，重新同步一次');
+        const bytes = base64ToBytes(chunk);
+        parts.push(bytes);
+        total += bytes.length;
+    }
+
+    const merged = new Uint8Array(total);
+    let offset = 0;
+    for (const part of parts) {
+        merged.set(part, offset);
+        offset += part.length;
+    }
+    return JSON.parse(new TextDecoder().decode(merged));
+}
+
+// 旧版把 GitHub token 存在 sync 和 localStorage 里，同步功能删掉后一并清掉
+function cleanupLegacySyncData() {
+    try {
+        localStorage.removeItem('startpage-github-sync');
+    } catch (error) { /* 清不掉不影响使用 */ }
+    if (!hasSyncStorage()) return;
+    try {
+        chrome.storage.sync.remove(CONFIG_SYNC_LEGACY_KEYS, () => { void chrome.runtime.lastError; });
+    } catch (error) { /* 同上 */ }
+}
+
+// 同步面板：把当前配置推到浏览器账号，或从账号恢复
+function initPopupSyncManagement(popupContent) {
+    const uploadBtn = popupContent.querySelector('#sync-upload');
+    const downloadBtn = popupContent.querySelector('#sync-download');
+
+    cleanupLegacySyncData();
 
     function setBusy(busy) {
         uploadBtn.disabled = busy;
@@ -869,33 +857,27 @@ function initPopupSyncManagement(popupContent) {
     }
 
     uploadBtn.addEventListener('click', async () => {
-        persist();
         setBusy(true);
         try {
-            await githubUpload();
-            setHint('已同步到 GitHub');
-            showMessage('已同步到 GitHub');
+            await writeConfigToSync(await buildExportConfig());
+            showMessage('已同步到浏览器账号');
         } catch (error) {
-            setHint('上传失败：' + error.message);
-            showMessage('上传失败：' + error.message);
+            showMessage('同步失败：' + error.message);
         } finally {
             setBusy(false);
         }
     });
 
     downloadBtn.addEventListener('click', async () => {
-        persist();
         setBusy(true);
         try {
-            await githubDownload();
-            setHint('已从 GitHub 拉取并应用');
+            await applyImportedConfig(await readConfigFromSync());
             applyWallpaper();
             await initNewSearch();
             await renderShortcuts();
-            showMessage('已从 GitHub 拉取配置');
+            showMessage('已从浏览器账号恢复配置');
         } catch (error) {
-            setHint('下载失败：' + error.message);
-            showMessage('下载失败：' + error.message);
+            showMessage('恢复失败：' + error.message);
         } finally {
             setBusy(false);
         }
@@ -1463,25 +1445,6 @@ function resolveIconSrc(site, host, iconApi) {
     return cached || iconApi.replace('{domain}', host);
 }
 
-// 图标源只有一个：用户在设置里填的那个。
-//
-// 这里原先有条「当前源 → 历史用过的源 → 内置默认源」的兜底链，是个坑：
-// 用户换了图标源之后，旧源（内置的 toolb.cn，以及历史里攒下的旧地址）照样会被请求，
-// 新源拿不到的站就回头去问旧源，控制台一屏 404 —— 等于把「我不用这个源了」当没发生。
-// 现在源拿不到图就退回字母图标，不再去问任何别的源。
-function getIconApiCandidates() {
-    const current = getIconApiUrl();
-    const cache = iconCacheRef();
-
-    // 不在扩展可访问名单里的源直接跳过：fetch 必然被拦，试了也是白试，还刷一屏报错。
-    //（<img> 本身照样能显示，只是这类图存不进本地抽屉。）
-    if (cache && cache.isUrlAllowed(current.replace('{domain}', 'example.com')) === false) {
-        return [];
-    }
-
-    return [current];
-}
-
 // 把抽屉读进内存。读不出来/读太慢都当空抽屉，页面照常跑。
 //
 // 这里必须带超时：图标缓存只是「加速」，绝不能反过来把整页拖住。
@@ -1550,14 +1513,19 @@ function applyCachedIcon(host, blobUrl, container) {
 
 // 渲染完之后，把本地还没存的图标悄悄抓回来。
 // 抓到一张就只换那一张 <img>，不整页重渲染 —— 用户看不到任何闪动。
+// 只问用户在设置里填的那一个源：拿不到图就退回字母，不回头去问旧源。
 function warmIconCache(hosts, container) {
-    if (!iconCacheRef() || !container) return;
+    const cache = iconCacheRef();
+    if (!cache || !container) return;
     const unique = [...new Set((hosts || []).filter(Boolean))];
     if (!unique.length) return;
-    // 候选源按优先级排好交给缓存层；末尾把「当前源」的标识一起带上，缓存层据此判断
-    // 手里那张图要不要重抓（旧源抓的 / 已过期 → 抓；当前源抓的且没过期 → 跳过）。
-    const urlFors = getIconApiCandidates().map(template => host => template.replace('{domain}', host));
-    iconCache.schedule(unique, urlFors, (host, blobUrl) => applyCachedIcon(host, blobUrl, container), getIconApiUrl());
+
+    const template = getIconApiUrl();
+    // 不在扩展可访问名单里的源直接跳过：fetch 必然被拦，试了也是白试，还刷一屏报错
+    if (cache.isUrlAllowed(template.replace('{domain}', 'example.com')) === false) return;
+
+    const urlFors = [host => template.replace('{domain}', host)];
+    cache.schedule(unique, urlFors, (host, blobUrl) => applyCachedIcon(host, blobUrl, container), template);
 }
 
 // 每个分组上次渲染时的内容签名：签名没变就不重建，现有的 <img> 原样留着。
@@ -1751,8 +1719,13 @@ window.addEventListener('keydown', function(e) {
         document.getElementById('new-search-input').focus();
     }
     
-    // 按Escape键清除搜索框
+    // 按Escape键：有面板开着先关面板，否则清空搜索框
     if (e.key === 'Escape') {
+        const popupContainer = document.getElementById('popup-container');
+        if (popupContainer && popupContainer.classList.contains('show')) {
+            closePopup();
+            return;
+        }
         const searchInput = document.getElementById('new-search-input');
         if (searchInput) {
             searchInput.blur();
@@ -1800,10 +1773,17 @@ function handleDropdownAction(action) {
     if (DROPDOWN_PANELS.includes(action)) showPopup(action);
 }
 
+// 各面板共用的标题栏
+function popupHeader(title) {
+    return `
+                <div class="popup-header">
+                    <h3>${title}</h3>
+                    <button class="popup-close">&times;</button>
+                </div>`;
+}
+
 // 显示弹出界面
 function showPopup(type) {
-    // 这里将实现纸张抽取动画的弹出界面
-    
     // 创建弹出界面容器
     let popupContainer = document.getElementById('popup-container');
     if (!popupContainer) {
@@ -1827,10 +1807,7 @@ function showPopup(type) {
 
         case 'groups':
             content = `
-                <div class="popup-header">
-                    <h3>分组管理</h3>
-                    <button class="popup-close">&times;</button>
-                </div>
+                ${popupHeader('分组管理')}
                 <div class="popup-body">
                     <!-- 分组管理界面 -->
                     <div class="groups-management">
@@ -1935,10 +1912,7 @@ function showPopup(type) {
             break;
         case 'wallpaper':
             content = `
-                <div class="popup-header">
-                    <h3>壁纸设置</h3>
-                    <button class="popup-close">&times;</button>
-                </div>
+                ${popupHeader('壁纸设置')}
                 <div class="popup-body">
                     <!-- 壁纸设置界面 -->
                     <div class="wallpaper-management">
@@ -1993,10 +1967,7 @@ function showPopup(type) {
             break;
         case 'search-engines':
             content = `
-                <div class="popup-header">
-                    <h3>搜索引擎管理</h3>
-                    <button class="popup-close">&times;</button>
-                </div>
+                ${popupHeader('搜索引擎管理')}
                 <div class="popup-body">
                     <div class="search-engines-management">
                         <div class="engines-list">
@@ -2055,10 +2026,7 @@ function showPopup(type) {
             break;
         case 'settings':
             content = `
-                <div class="popup-header">
-                    <h3>图标来源</h3>
-                    <button class="popup-close">&times;</button>
-                </div>
+                ${popupHeader('图标来源')}
                 <div class="popup-body">
                     <div class="settings-management">
                         <div class="form-group">
@@ -2081,10 +2049,7 @@ function showPopup(type) {
             break;
         case 'config':
             content = `
-                <div class="popup-header">
-                    <h3>配置同步</h3>
-                    <button class="popup-close">&times;</button>
-                </div>
+                ${popupHeader('配置同步')}
                 <div class="popup-body">
                     <div class="settings-management">
                         <div class="form-group">
@@ -2095,21 +2060,11 @@ function showPopup(type) {
                             </div>
                         </div>
                         <div class="form-group divider-block">
-                            <div class="section-title">云端配置</div>
-                            <label for="github-token" style="color: #666;">GitHub Token <a href="https://github.com/settings/tokens/new?scopes=gist&description=QidoBloom" target="_blank" style="color: #666; text-decoration: none;" title="生成 token">↗</a></label>
-                            <div style="display: flex; gap: 8px;">
-                                <input type="password" id="github-token" class="form-control" placeholder="ghp_..." style="flex: 1;">
-                                <button id="github-save" class="btn btn-primary">保存</button>
-                            </div>
-                        </div>
-                        <div class="form-group">
+                            <div class="section-title">浏览器账号</div>
                             <div class="btn-row">
-                                <button id="github-upload" class="btn btn-primary">上传配置</button>
-                                <button id="github-download" class="btn btn-secondary">下载配置</button>
+                                <button id="sync-upload" class="btn btn-primary">同步到账号</button>
+                                <button id="sync-download" class="btn btn-secondary">从账号恢复</button>
                             </div>
-                        </div>
-                        <div class="form-group">
-                            <small id="github-hint" style="color: #666; font-size: 0.8rem;"></small>
                         </div>
                     </div>
                 </div>
@@ -2117,10 +2072,7 @@ function showPopup(type) {
             break;
         default:
             content = `
-                <div class="popup-header">
-                    <h3>功能</h3>
-                    <button class="popup-close">&times;</button>
-                </div>
+                ${popupHeader('功能')}
                 <div class="popup-body">
                     <p>功能开发中...</p>
                 </div>
@@ -2142,24 +2094,21 @@ function showPopup(type) {
         });
     }
     
-    // 绑定功能按钮点击事件
-    if (type === 'groups') {
-        // 初始化分组管理功能
-        initPopupGroupsManagement(popupContent);
-    } else if (type === 'wallpaper') {
-        // 初始化壁纸设置功能
-        initPopupWallpaperManagement(popupContent);
-    } else if (type === 'search-engines') {
-        // 初始化搜索引擎管理功能
-        initPopupSearchEnginesManagement(popupContent);
-    } else if (type === 'settings') {
-        // 初始化设置功能
-        initPopupSettingsManagement(popupContent);
-    } else if (type === 'config') {
-        // 配置：本地导出/导入 + 云端同步
+    // 各面板的初始化函数
+    const initPanel = {
+        'groups': initPopupGroupsManagement,
+        'wallpaper': initPopupWallpaperManagement,
+        'search-engines': initPopupSearchEnginesManagement,
+        'settings': initPopupSettingsManagement,
+        'config': initPopupSyncManagement
+    }[type];
+
+    if (type === 'config') {
         popupContent.querySelector('#local-export').addEventListener('click', exportConfig);
         popupContent.querySelector('#local-import').addEventListener('click', importConfig);
-        initPopupSyncManagement(popupContent);
+    }
+    if (initPanel) {
+        Promise.resolve(initPanel(popupContent)).catch(error => console.error('Panel init error:', error));
     }
 }
 
